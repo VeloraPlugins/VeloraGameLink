@@ -2,12 +2,12 @@ package online.veloraplugins.gamelink.paper.commands
 
 import com.github.shynixn.mccoroutine.bukkit.scope
 import online.veloraplugins.engine.message.audience
+import online.veloraplugins.gamelink.api.game.ServerType
 import online.veloraplugins.gamelink.paper.VeloraGameLinkPlugin
-import online.veloraplugins.gamelink.paper.configurations.GameSignsConfig
 import online.veloraplugins.gamelink.paper.message.GameLinkMessage
-import org.bukkit.block.Sign
 import org.bukkit.command.CommandSender
-import org.bukkit.entity.Player
+import org.bukkit.command.ConsoleCommandSender
+import org.incendo.cloud.context.CommandContext
 import org.incendo.cloud.description.CommandDescription
 import org.incendo.cloud.kotlin.coroutines.extension.suspendingHandler
 import org.incendo.cloud.parser.standard.IntegerParser
@@ -19,20 +19,58 @@ class GameManagementCommands(
 
     init {
 
+        /*
+         * Game management commands are only relevant
+         * on GAME servers.
+         *
+         * Lobby servers consume network game data but
+         * must not register or mutate local game instances.
+         */
+
+        if (
+            plugin.pluginConfig.server.type ==
+            ServerType.GAME
+        ) {
+
+            registerCommands()
+
+        } else {
+
+            plugin.debug(
+                "COMMAND",
+                "Skipped game management commands because " +
+                        "this server is not a GAME server."
+            )
+        }
+    }
+
+    /*
+     * Register commands
+     */
+
+    private fun registerCommands() {
+
         val permission =
             "gamelink.command.manage"
 
         val root = plugin
             .commandManager
             .root()
-            .literal("manage")
-            .permission(
-                permission
+            .senderType(ConsoleCommandSender::class.java)
+            .literal(
+                "manage"
             )
 
-        plugin.commandManager.manager.command(
-            root.suspendingHandler(plugin.scope) { context ->
+        /*
+         * /gamelink manage
+         */
 
+        plugin.commandManager.manager.command(
+            root
+                .permission(
+                    "$permission.help"
+                )
+                .suspendingHandler(plugin.scope) { context ->
                 plugin.messages.send(
                     context.sender().audience(),
                     GameLinkMessage.MANAGE_HELP
@@ -41,14 +79,18 @@ class GameManagementCommands(
         )
 
         /*
-         * /gamelink game register
+         * /gamelink manage register
          * <id> <type> <state> <players> <maxPlayers> [map]
          */
 
         plugin.commandManager.manager.command(
 
-            root.literal("register")
-                .permission("$permission.register")
+            root.literal(
+                "register"
+            )
+                .permission(
+                    "$permission.register"
+                )
                 .required(
                     "id",
                     StringParser.stringParser()
@@ -79,7 +121,7 @@ class GameManagementCommands(
                 )
                 .commandDescription(
                     CommandDescription.commandDescription(
-                        "Register a game instance."
+                        "Register a local game instance."
                     )
                 )
                 .suspendingHandler(plugin.scope) { context ->
@@ -109,7 +151,8 @@ class GameManagementCommands(
                         null
                     )
 
-                    if (plugin.gameLinkService.isRegistered(
+                    if (
+                        plugin.gameLinkService.isRegistered(
                             id
                         )
                     ) {
@@ -136,6 +179,11 @@ class GameManagementCommands(
 
                     }.onSuccess {
 
+                        plugin.debug(
+                            "COMMAND",
+                            "Registered local game '$id' through management command."
+                        )
+
                         plugin.messages.send(
                             context.sender().audience(),
                             GameLinkMessage.GAME_REGISTERED,
@@ -155,22 +203,26 @@ class GameManagementCommands(
                             GameLinkMessage.GAME_OPERATION_FAILED,
                             "game" to id,
                             "error" to (
-                                throwable.message
-                                    ?: "Unknown error"
-                                )
+                                    throwable.message
+                                        ?: "Unknown error"
+                                    )
                         )
                     }
                 }
         )
 
         /*
-         * /gamelink game unregister <id>
+         * /gamelink manage unregister <id>
          */
 
         plugin.commandManager.manager.command(
 
-            root.literal("unregister")
-                .permission("$permission.unregister")
+            root.literal(
+                "unregister"
+            )
+                .permission(
+                    "$permission.unregister"
+                )
                 .required(
                     "id",
                     StringParser.stringParser()
@@ -186,19 +238,24 @@ class GameManagementCommands(
                         "id"
                     )
 
-                    if (!plugin.gameLinkService.unregisterGame(
+                    if (
+                        !plugin.gameLinkService.unregisterGame(
                             id
                         )
                     ) {
 
-                        plugin.messages.send(
-                            context.sender().audience(),
-                            GameLinkMessage.GAME_NOT_FOUND,
-                            "game" to id
+                        sendGameNotFound(
+                            context = context,
+                            id = id
                         )
 
                         return@suspendingHandler
                     }
+
+                    plugin.debug(
+                        "COMMAND",
+                        "Unregistered local game '$id' through management command."
+                    )
 
                     plugin.messages.send(
                         context.sender().audience(),
@@ -209,13 +266,17 @@ class GameManagementCommands(
         )
 
         /*
-         * /gamelink game state <id> <state>
+         * /gamelink manage state <id> <state>
          */
 
         plugin.commandManager.manager.command(
 
-            root.literal("state")
-                .permission("$permission.state")
+            root.literal(
+                "state"
+            )
+                .permission(
+                    "$permission.state"
+                )
                 .required(
                     "id",
                     StringParser.stringParser()
@@ -226,7 +287,7 @@ class GameManagementCommands(
                 )
                 .commandDescription(
                     CommandDescription.commandDescription(
-                        "Update a game's state."
+                        "Update a local game's state."
                     )
                 )
                 .suspendingHandler(plugin.scope) { context ->
@@ -239,7 +300,8 @@ class GameManagementCommands(
                         "state"
                     )
 
-                    if (!plugin.gameLinkService.updateState(
+                    if (
+                        !plugin.gameLinkService.updateState(
                             id = id,
                             state = state
                         )
@@ -253,6 +315,11 @@ class GameManagementCommands(
                         return@suspendingHandler
                     }
 
+                    plugin.debug(
+                        "COMMAND",
+                        "Updated state for local game '$id' to '$state'."
+                    )
+
                     plugin.messages.send(
                         context.sender().audience(),
                         GameLinkMessage.GAME_STATE_UPDATED,
@@ -263,13 +330,17 @@ class GameManagementCommands(
         )
 
         /*
-         * /gamelink game players <id> <players>
+         * /gamelink manage players <id> <players>
          */
 
         plugin.commandManager.manager.command(
 
-            root.literal("players")
-                .permission("$permission.players")
+            root.literal(
+                "players"
+            )
+                .permission(
+                    "$permission.players"
+                )
                 .required(
                     "id",
                     StringParser.stringParser()
@@ -282,7 +353,7 @@ class GameManagementCommands(
                 )
                 .commandDescription(
                     CommandDescription.commandDescription(
-                        "Update a game's player count."
+                        "Update a local game's player count."
                     )
                 )
                 .suspendingHandler(plugin.scope) { context ->
@@ -314,6 +385,11 @@ class GameManagementCommands(
                             return@onSuccess
                         }
 
+                        plugin.debug(
+                            "COMMAND",
+                            "Updated players for local game '$id' to $players."
+                        )
+
                         plugin.messages.send(
                             context.sender().audience(),
                             GameLinkMessage.GAME_PLAYERS_UPDATED,
@@ -334,22 +410,26 @@ class GameManagementCommands(
                             GameLinkMessage.GAME_OPERATION_FAILED,
                             "game" to id,
                             "error" to (
-                                throwable.message
-                                    ?: "Unknown error"
-                                )
+                                    throwable.message
+                                        ?: "Unknown error"
+                                    )
                         )
                     }
                 }
         )
 
         /*
-         * /gamelink game map <id> <map>
+         * /gamelink manage map <id> <map>
          */
 
         plugin.commandManager.manager.command(
 
-            root.literal("map")
-                .permission("$permission.map")
+            root.literal(
+                "map"
+            )
+                .permission(
+                    "$permission.map"
+                )
                 .required(
                     "id",
                     StringParser.stringParser()
@@ -360,7 +440,7 @@ class GameManagementCommands(
                 )
                 .commandDescription(
                     CommandDescription.commandDescription(
-                        "Update a game's map."
+                        "Update a local game's map."
                     )
                 )
                 .suspendingHandler(plugin.scope) { context ->
@@ -373,7 +453,8 @@ class GameManagementCommands(
                         "map"
                     )
 
-                    if (!plugin.gameLinkService.updateMap(
+                    if (
+                        !plugin.gameLinkService.updateMap(
                             id = id,
                             map = map
                         )
@@ -387,6 +468,11 @@ class GameManagementCommands(
                         return@suspendingHandler
                     }
 
+                    plugin.debug(
+                        "COMMAND",
+                        "Updated map for local game '$id' to '$map'."
+                    )
+
                     plugin.messages.send(
                         context.sender().audience(),
                         GameLinkMessage.GAME_MAP_UPDATED,
@@ -397,20 +483,24 @@ class GameManagementCommands(
         )
 
         /*
-         * /gamelink game clearmap <id>
+         * /gamelink manage clearmap <id>
          */
 
         plugin.commandManager.manager.command(
 
-            root.literal("clearmap")
-                .permission("$permission.map")
+            root.literal(
+                "clearmap"
+            )
+                .permission(
+                    "$permission.map"
+                )
                 .required(
                     "id",
                     StringParser.stringParser()
                 )
                 .commandDescription(
                     CommandDescription.commandDescription(
-                        "Clear a game's map."
+                        "Clear a local game's map."
                     )
                 )
                 .suspendingHandler(plugin.scope) { context ->
@@ -419,7 +509,8 @@ class GameManagementCommands(
                         "id"
                     )
 
-                    if (!plugin.gameLinkService.updateMap(
+                    if (
+                        !plugin.gameLinkService.updateMap(
                             id = id,
                             map = null
                         )
@@ -433,6 +524,11 @@ class GameManagementCommands(
                         return@suspendingHandler
                     }
 
+                    plugin.debug(
+                        "COMMAND",
+                        "Cleared map for local game '$id'."
+                    )
+
                     plugin.messages.send(
                         context.sender().audience(),
                         GameLinkMessage.GAME_MAP_CLEARED,
@@ -442,13 +538,17 @@ class GameManagementCommands(
         )
 
         /*
-         * /gamelink game info <id>
+         * /gamelink manage info <id>
          */
 
         plugin.commandManager.manager.command(
 
-            root.literal("info")
-                .permission("$permission.info")
+            root.literal(
+                "info"
+            )
+                .permission(
+                    "$permission.info"
+                )
                 .required(
                     "id",
                     StringParser.stringParser()
@@ -492,6 +592,11 @@ class GameManagementCommands(
                     )
                 }
         )
+
+        plugin.debug(
+            "COMMAND",
+            "Registered GAME server management commands."
+        )
     }
 
     /*
@@ -499,7 +604,7 @@ class GameManagementCommands(
      */
 
     private fun sendGameNotFound(
-        context: org.incendo.cloud.context.CommandContext<CommandSender>,
+        context: CommandContext<ConsoleCommandSender>,
         id: String
     ) {
 

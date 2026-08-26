@@ -217,6 +217,73 @@ When multiple games have the same priority, the game with the highest player cou
 
 ---
 
+## Lobby Game Signs
+
+GameLink signs are created directly from Minecraft signs on `LOBBY` servers.
+
+### Creating a GameLink sign
+
+Place a sign and enter:
+
+```text
+[gamelink]
+bedwars
+```
+
+The first line must be:
+
+```text
+[gamelink]
+```
+
+The second line must contain the configured game type, for example:
+
+```text
+bedwars
+```
+
+VeloraGameLink automatically registers the sign in `game-signs.yml` and starts managing it.
+
+You do not need a command to add the sign.
+
+The game type must exist in `game-displays.yml`.
+
+Example:
+
+```yaml
+games:
+  bedwars:
+```
+
+A registered sign is automatically assigned to a visible game instance of that type.
+
+One game instance may only be assigned to one physical sign at a time.
+
+If no unassigned displayable game is available, the sign shows the configured `searching-for-games` display.
+
+### Removing a GameLink sign
+
+To remove a registered GameLink sign:
+
+1. Sneak.
+2. Break the sign.
+
+The player must have:
+
+```text
+gamelink.sign.remove
+```
+
+If the player is not sneaking, or does not have permission, breaking the registered sign is cancelled.
+
+When successfully removed:
+
+- The sign is removed from `game-signs.yml`.
+- Its active game assignment is cleared.
+- The physical sign is allowed to break normally.
+- Remaining signs for that game type are refreshed.
+
+
 ## Public API
 
 Access the API through:
@@ -675,6 +742,8 @@ gamelink.command.manage.state
 gamelink.command.manage.players
 gamelink.command.manage.map
 gamelink.command.manage.info
+
+gamelink.sign.remove
 ```
 
 Game-specific menu permissions are dynamic:

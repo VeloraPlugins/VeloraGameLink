@@ -10,52 +10,35 @@ enum class GameLinkMessage(
     HELP(
         "help",
         """
-    {prefix}<gradient:#00B0FF:#2979FF><b>VeloraGameLink</b></gradient>
-    
-    <gray>Commands:</gray>
-    
-    <yellow>/gamelink reload</yellow> <dark_gray>-</dark_gray> <white>Reload the plugin.</white>
-    <yellow>/gamelink debug</yellow> <dark_gray>-</dark_gray> <white>Show debug status.</white>
-    <yellow>/gamelink games</yellow> <dark_gray>-</dark_gray> <white>Show registered game instances.</white>
-    <yellow>/gamelink menu [gameType]</yellow> <dark_gray>-</dark_gray> <white>Open the games menu.</white>
-    <yellow>/gamelink quickjoin <gameType></yellow> <dark_gray>-</dark_gray> <white>Join the best available game.</white>
-    <yellow>/gamelink manage</yellow> <dark_gray>-</dark_gray> <white>Show management commands.</white>
+    <gray>Available commands:</gray>
+    <white>/gamelink games</white> <dark_gray>-</dark_gray> <gray>View available games</gray>
+    <white>/gamelink menu</white> <dark_gray>-</dark_gray> <gray>Open the games menu</gray>
+    <white>/gamelink menu <gameType></white> <dark_gray>-</dark_gray> <gray>Open a specific game menu</gray>
+    <white>/gamelink quickjoin <gameType></white> <dark_gray>-</dark_gray> <gray>Join the best available game</gray>
+    """.trimIndent()
+    ),
+
+    ADMIN_HELP(
+        "admin_help",
+        """
+    <gray>Administrative commands:</gray>
+    <white>/gamelink reload</white> <dark_gray>-</dark_gray> <gray>Reload configuration</gray>
+    <white>/gamelink debug</white> <dark_gray>-</dark_gray> <gray>View debug status</gray>
+    <white>/gamelink manage</white> <dark_gray>-</dark_gray> <gray>View management commands</gray>
     """.trimIndent()
     ),
 
     MANAGE_HELP(
         "manage_help",
         """
-    {prefix}<gradient:#00B0FF:#2979FF><b>Game Management</b></gradient>
-    
-    <gray>Commands:</gray>
-    
-    <yellow>/gamelink manage register <id> <type> <state> <players> <maxPlayers> [map]</yellow>
-    <dark_gray>-</dark_gray> <white>Register a game instance.</white>
-    
-    <yellow>/gamelink manage unregister <id></yellow>
-    <dark_gray>-</dark_gray> <white>Unregister a game instance.</white>
-    
-    <yellow>/gamelink manage state <id> <state></yellow>
-    <dark_gray>-</dark_gray> <white>Update a game state.</white>
-    
-    <yellow>/gamelink manage players <id> <players></yellow>
-    <dark_gray>-</dark_gray> <white>Update a game player count.</white>
-    
-    <yellow>/gamelink manage map <id> <map></yellow>
-    <dark_gray>-</dark_gray> <white>Update a game map.</white>
-    
-    <yellow>/gamelink manage clearmap <id></yellow>
-    <dark_gray>-</dark_gray> <white>Clear a game map.</white>
-    
-    <yellow>/gamelink manage info <id></yellow>
-    <dark_gray>-</dark_gray> <white>Show information about a game instance.</white>
-    
-    <yellow>/gamelink manage addsign <gameType></yellow>
-    <dark_gray>-</dark_gray> <white>Register the sign you are looking at.</white>
-    
-    <yellow>/gamelink manage removesign</yellow>
-    <dark_gray>-</dark_gray> <white>Remove the registered sign you are looking at.</white>
+    <gray>Game management commands:</gray>
+    <white>/gamelink manage register ...</white>
+    <white>/gamelink manage unregister <id></white>
+    <white>/gamelink manage state <id> <state></white>
+    <white>/gamelink manage players <id> <players></white>
+    <white>/gamelink manage map <id> <map></white>
+    <white>/gamelink manage clearmap <id></white>
+    <white>/gamelink manage info <id></white>
     """.trimIndent()
     ),
 

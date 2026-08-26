@@ -3,10 +3,9 @@ package online.veloraplugins.gamelink.paper.commands
 import com.github.shynixn.mccoroutine.bukkit.scope
 import online.veloraplugins.engine.message.audience
 import online.veloraplugins.gamelink.paper.VeloraGameLinkPlugin
-import online.veloraplugins.gamelink.paper.configurations.GameSignsConfig
 import online.veloraplugins.gamelink.paper.gui.GamesGui
 import online.veloraplugins.gamelink.paper.message.GameLinkMessage
-import org.bukkit.block.Sign
+import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.incendo.cloud.description.CommandDescription
 import org.incendo.cloud.kotlin.coroutines.extension.suspendingHandler
@@ -18,24 +17,38 @@ class GameLinkCommands(
 
     init {
 
-        val permission = "gamelink.command"
+        val permission =
+            "gamelink.command"
 
-        val root = plugin.commandManager
+        val root = plugin
+            .commandManager
             .root()
-            .permission(permission)
-
-        /*
-         * /gamelink
-         */
 
         plugin.commandManager.manager.command(
+            root
+                .permission(
+                    "$permission.help"
+                )
+                .suspendingHandler(plugin.scope) { context ->
 
-            root.suspendingHandler(plugin.scope) {
+                val sender =
+                    context.sender()
 
                 plugin.messages.send(
-                    it.sender().audience(),
+                    sender.audience(),
                     GameLinkMessage.HELP
                 )
+
+                if (hasAdminAccess(
+                        sender
+                    )
+                ) {
+
+                    plugin.messages.send(
+                        sender.audience(),
+                        GameLinkMessage.ADMIN_HELP
+                    )
+                }
             }
         )
 
@@ -45,19 +58,23 @@ class GameLinkCommands(
 
         plugin.commandManager.manager.command(
 
-            root.literal("reload")
-                .permission("$permission.reload")
+            root.literal(
+                "reload"
+            )
+                .permission(
+                    "$permission.reload"
+                )
                 .commandDescription(
                     CommandDescription.commandDescription(
                         "Reload VeloraGameLink."
                     )
                 )
-                .suspendingHandler(plugin.scope) {
+                .suspendingHandler(plugin.scope) { context ->
 
                     plugin.reloadPlugin()
 
                     plugin.messages.send(
-                        it.sender().audience(),
+                        context.sender().audience(),
                         GameLinkMessage.RELOAD_SUCCESS
                     )
                 }
@@ -69,17 +86,21 @@ class GameLinkCommands(
 
         plugin.commandManager.manager.command(
 
-            root.literal("debug")
-                .permission("$permission.debug")
+            root.literal(
+                "debug"
+            )
+                .permission(
+                    "$permission.debug"
+                )
                 .commandDescription(
                     CommandDescription.commandDescription(
-                        "Show debug status."
+                        "Show VeloraGameLink debug status."
                     )
                 )
-                .suspendingHandler(plugin.scope) {
+                .suspendingHandler(plugin.scope) { context ->
 
                     plugin.messages.send(
-                        it.sender().audience(),
+                        context.sender().audience(),
                         GameLinkMessage.DEBUG_STATUS,
                         "status" to if (plugin.pluginConfig.debug) {
                             "enabled"
@@ -96,21 +117,35 @@ class GameLinkCommands(
 
         plugin.commandManager.manager.command(
 
-            root.literal("games")
-                .permission("$permission.games")
+            root.literal(
+                "games"
+            )
+                .permission(
+                    "$permission.games"
+                )
                 .commandDescription(
                     CommandDescription.commandDescription(
-                        "Show available game instances."
+                        "Show available games."
                     )
                 )
-                .suspendingHandler(plugin.scope) {
+                .suspendingHandler(plugin.scope) { context ->
 
-                    val games = plugin.gameRedisService.getAll()
+                    val sender =
+                        context.sender()
+
+                    val games = plugin
+                        .gameRedisService
+                        .getAll()
+                        .filter {
+                            plugin.gameSelectorService.isJoinable(
+                                it
+                            )
+                        }
 
                     if (games.isEmpty()) {
 
                         plugin.messages.send(
-                            it.sender().audience(),
+                            sender.audience(),
                             GameLinkMessage.GAMES_EMPTY
                         )
 
@@ -118,21 +153,25 @@ class GameLinkCommands(
                     }
 
                     plugin.messages.send(
-                        it.sender().audience(),
+                        sender.audience(),
                         GameLinkMessage.GAMES_HEADER
                     )
 
                     games
                         .sortedWith(
                             compareBy(
-                                { it.type.lowercase() },
-                                { it.id.lowercase() }
+                                {
+                                    it.type.lowercase()
+                                },
+                                {
+                                    it.id.lowercase()
+                                }
                             )
                         )
                         .forEach { game ->
 
                             plugin.messages.send(
-                                it.sender().audience(),
+                                sender.audience(),
                                 GameLinkMessage.GAMES_ENTRY,
                                 "id" to game.id,
                                 "type" to game.type,
@@ -151,8 +190,12 @@ class GameLinkCommands(
 
         plugin.commandManager.manager.command(
 
-            root.literal("quickjoin")
-                .permission("$permission.quickjoin")
+            root.literal(
+                "quickjoin"
+            )
+                .permission(
+                    "$permission.quickjoin"
+                )
                 .required(
                     "game",
                     StringParser.stringParser()
@@ -164,7 +207,8 @@ class GameLinkCommands(
                 )
                 .suspendingHandler(plugin.scope) { context ->
 
-                    val sender = context.sender()
+                    val sender =
+                        context.sender()
 
                     if (sender !is Player) {
 
@@ -188,13 +232,17 @@ class GameLinkCommands(
         )
 
         /*
- * /gamelink menu [game]
- */
+         * /gamelink menu [game]
+         */
 
         plugin.commandManager.manager.command(
 
-            root.literal("menu")
-                .permission("$permission.menu")
+            root.literal(
+                "menu"
+            )
+                .permission(
+                    "$permission.menu"
+                )
                 .optional(
                     "game",
                     StringParser.stringParser()
@@ -206,7 +254,8 @@ class GameLinkCommands(
                 )
                 .suspendingHandler(plugin.scope) { context ->
 
-                    val sender = context.sender()
+                    val sender =
+                        context.sender()
 
                     if (sender !is Player) {
 
@@ -218,10 +267,11 @@ class GameLinkCommands(
                         return@suspendingHandler
                     }
 
-                    val gameType = context.getOrDefault<String?>(
-                        "game",
-                        null
-                    )
+                    val gameType =
+                        context.getOrDefault<String?>(
+                            "game",
+                            null
+                        )
 
                     /*
                      * All games menu
@@ -230,7 +280,7 @@ class GameLinkCommands(
                     if (gameType == null) {
 
                         if (!sender.hasPermission(
-                                "gamelink.command.menu.all"
+                                "$permission.menu.all"
                             )
                         ) {
 
@@ -255,11 +305,11 @@ class GameLinkCommands(
                      * Specific game type
                      */
 
-                    val normalizedGameType = gameType
-                        .lowercase()
+                    val normalizedGameType =
+                        gameType.lowercase()
 
                     if (!sender.hasPermission(
-                            "gamelink.command.menu.$normalizedGameType"
+                            "$permission.menu.$normalizedGameType"
                         )
                     ) {
 
@@ -279,5 +329,28 @@ class GameLinkCommands(
                     )
                 }
         )
+    }
+
+    /*
+     * Administrative access
+     *
+     * Determines whether the administrative help
+     * section should be shown after the normal
+     * member help.
+     */
+
+    private fun hasAdminAccess(
+        sender: CommandSender
+    ): Boolean {
+
+        return sender.hasPermission(
+            "gamelink.command.reload"
+        ) ||
+                sender.hasPermission(
+                    "gamelink.command.debug"
+                ) ||
+                sender.hasPermission(
+                    "gamelink.command.manage"
+                )
     }
 }
