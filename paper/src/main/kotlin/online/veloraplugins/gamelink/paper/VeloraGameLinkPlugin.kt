@@ -13,6 +13,7 @@ import online.veloraplugins.gamelink.api.events.GameRemovedEvent
 import online.veloraplugins.gamelink.api.events.GameUpdatedEvent
 import online.veloraplugins.gamelink.api.game.ServerType
 import online.veloraplugins.gamelink.paper.commands.GameLinkCommands
+import online.veloraplugins.gamelink.paper.commands.GameManagementCommands
 import online.veloraplugins.gamelink.paper.configurations.GameDisplaysConfig
 import online.veloraplugins.gamelink.paper.configurations.GameLinkConfig
 import online.veloraplugins.gamelink.paper.configurations.GameSignsConfig
@@ -701,6 +702,10 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
     private fun loadCommands() {
 
         GameLinkCommands(
+            this
+        )
+
+        GameManagementCommands(
             this
         )
 
