@@ -126,6 +126,45 @@ class GameJoinService(
         }
 
         /*
+         * Check existing join intent.
+         *
+         * A player may only have one active join intent
+         * at a time.
+         *
+         * This prevents multiple join requests from
+         * overwriting each other before the player reaches
+         * the destination GAME server.
+         */
+
+        if (gameRedisService.hasValidJoinIntent(
+                player.uniqueId
+            )
+        ) {
+
+            val existingGameId = gameRedisService.getJoinIntent(
+                player.uniqueId
+            )
+
+            plugin.debug(
+                "JOIN",
+                "Player '${player.name}' already has an active join intent" +
+                        if (existingGameId != null) {
+                            " for game '$existingGameId'."
+                        } else {
+                            "."
+                        }
+            )
+
+            plugin.messages.send(
+                player.audience(),
+                GameLinkMessage.JOIN_ALREADY_PENDING,
+                "game" to (existingGameId ?: current.id)
+            )
+
+            return GameJoinResult.JOIN_ALREADY_PENDING
+        }
+
+        /*
          * Create join intent.
          *
          * This must happen BEFORE the player is transferred

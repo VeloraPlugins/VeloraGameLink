@@ -22,9 +22,7 @@ class GameSignsConfig : OkaeriConfig() {
     @Comment(
         "Configured game signs."
     )
-    var signs = listOf(
-        GameSign()
-    )
+    var signs = emptyList<GameSign>()
 
     class GameSign : OkaeriConfig() {
 

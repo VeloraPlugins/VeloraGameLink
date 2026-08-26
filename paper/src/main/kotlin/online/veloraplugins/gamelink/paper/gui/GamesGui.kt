@@ -26,7 +26,8 @@ class GamesGui(
         player: Player
     ) {
 
-        val config = plugin.gamesMenuConfig
+        val config =
+            plugin.gamesMenuConfig
 
         val gui = Gui.paginated()
             .rows(
@@ -50,8 +51,8 @@ class GamesGui(
             gui.filler.fillBorder(
                 PaperItemBuilder.from(
                     getMaterial(
-                        config.border.material,
-                        XMaterial.GRAY_STAINED_GLASS_PANE
+                        material = config.border.material,
+                        fallback = XMaterial.GRAY_STAINED_GLASS_PANE
                     )
                 )
                     .name(
@@ -67,7 +68,8 @@ class GamesGui(
          * Games
          */
 
-        val games = getGames()
+        val games =
+            getGames()
 
         games.forEach { game ->
 
@@ -96,19 +98,14 @@ class GamesGui(
             } else {
 
                 emptyConfig.gameLore
-                    .map {
-                        replaceMenuPlaceholders(
-                            text = it
-                        )
-                    }
             }
 
             gui.setItem(
                 22,
                 PaperItemBuilder.from(
                     getMaterial(
-                        emptyConfig.material,
-                        XMaterial.BARRIER
+                        material = emptyConfig.material,
+                        fallback = XMaterial.BARRIER
                     )
                 )
                     .name(
@@ -137,9 +134,9 @@ class GamesGui(
 
         setNavigationItem(
             gui = gui,
-            player = player,
             config = config.previous
         ) {
+
             gui.previous()
         }
 
@@ -149,7 +146,6 @@ class GamesGui(
 
         setNavigationItem(
             gui = gui,
-            player = player,
             config = config.refresh
         ) {
 
@@ -170,9 +166,9 @@ class GamesGui(
 
         setNavigationItem(
             gui = gui,
-            player = player,
             config = config.next
         ) {
+
             gui.next()
         }
 
@@ -182,7 +178,6 @@ class GamesGui(
 
         setNavigationItem(
             gui = gui,
-            player = player,
             config = config.close
         ) {
 
@@ -246,59 +241,78 @@ class GamesGui(
 
     /*
      * Game item
+     *
+     * The GUI item configuration is resolved from
+     * game-displays.yml per game type.
      */
 
     private fun createGameItem(
         gui: PaginatedGui,
         player: Player,
         game: GameInstance
-    ) = PaperItemBuilder.from(
-        getGameMaterial(
-            game
-        )
+    ) = findGameDisplayConfig(
+        game.type
     )
-        .name(
-            ComponentUtil.parse(
-                replaceGamePlaceholders(
-                    text = plugin.gamesMenuConfig.gameItem.name,
-                    game = game
+        ?.displayItem
+        ?.let { displayItem ->
+
+            PaperItemBuilder.from(
+                getMaterial(
+                    material = displayItem.material,
+                    fallback = XMaterial.PAPER
                 )
             )
-        )
-        .lore(
-            plugin
-                .gamesMenuConfig
-                .gameItem
-                .lore
-                .map {
+                .name(
                     ComponentUtil.parse(
                         replaceGamePlaceholders(
-                            text = it,
+                            text = displayItem.name,
                             game = game
                         )
                     )
+                )
+                .lore(
+                    displayItem
+                        .lore
+                        .map {
+                            ComponentUtil.parse(
+                                replaceGamePlaceholders(
+                                    text = it,
+                                    game = game
+                                )
+                            )
+                        }
+                )
+                .asGuiItem {
+
+                    /*
+                     * Always close using the Triumph GUI
+                     * instance before attempting transfer.
+                     */
+
+                    gui.close(
+                        player
+                    )
+
+                    /*
+                     * GameJoinService validates the latest
+                     * Redis state before transferring.
+                     */
+
+                    plugin.gameJoinService.join(
+                        player = player,
+                        game = game
+                    )
                 }
-        )
-        .asGuiItem {
-
-            /*
-             * Close using Triumph GUI.
-             */
-
-            gui.close(
-                player
-            )
-
-            /*
-             * GameJoinService re-validates the latest
-             * game state from Redis before transfer.
-             */
-
-            plugin.gameJoinService.join(
-                player = player,
-                game = game
-            )
         }
+        ?: PaperItemBuilder.from(
+            XMaterial.PAPER.parse
+        )
+            .name(
+                ComponentUtil.parse(
+                    "<red>Invalid game configuration"
+                )
+            )
+            .asGuiItem()
 
     /*
      * Navigation
@@ -306,7 +320,6 @@ class GamesGui(
 
     private fun setNavigationItem(
         gui: PaginatedGui,
-        player: Player,
         config: GamesMenuConfig.NavigationItem,
         action: () -> Unit
     ) {
@@ -315,8 +328,8 @@ class GamesGui(
             config.slot,
             PaperItemBuilder.from(
                 getMaterial(
-                    config.material,
-                    XMaterial.PAPER
+                    material = config.material,
+                    fallback = XMaterial.PAPER
                 )
             )
                 .name(
@@ -327,64 +340,19 @@ class GamesGui(
                     )
                 )
                 .lore(
-                    config.lore.map {
-                        ComponentUtil.parse(
-                            replaceMenuPlaceholders(
-                                it
+                    config
+                        .lore
+                        .map {
+                            ComponentUtil.parse(
+                                replaceMenuPlaceholders(
+                                    it
+                                )
                             )
-                        )
-                    }
+                        }
                 )
                 .asGuiItem {
                     action()
                 }
-        )
-    }
-
-    /*
-     * Game material
-     */
-
-    private fun getGameMaterial(
-        game: GameInstance
-    ): ItemStack {
-
-        val config =
-            plugin.gamesMenuConfig.gameItem
-
-        /*
-         * Use state material first.
-         */
-
-        if (config.useStateMaterial) {
-
-            val stateMaterial = findStateDisplay(
-                game
-            )
-                ?.material
-                ?.let {
-                    XMaterial.matchXMaterial(
-                        it
-                    ).orElse(
-                        null
-                    )
-                }
-
-            if (stateMaterial != null) {
-
-                return ItemStack(
-                    stateMaterial.parse
-                )
-            }
-        }
-
-        /*
-         * Fallback material.
-         */
-
-        return getMaterial(
-            config.material,
-            XMaterial.PAPER
         )
     }
 
@@ -404,25 +372,37 @@ class GamesGui(
     }
 
     /*
-     * State display
+     * Game display configuration
+     */
+
+    private fun findGameDisplayConfig(
+        gameType: String
+    ): GameDisplaysConfig.GameTypeDisplay? {
+
+        return plugin
+            .gameDisplaysConfig
+            .games
+            .entries
+            .firstOrNull {
+                it.key.equals(
+                    gameType,
+                    ignoreCase = true
+                )
+            }
+            ?.value
+    }
+
+    /*
+     * State display configuration
      */
 
     private fun findStateDisplay(
         game: GameInstance
     ): GameDisplaysConfig.SignDisplay? {
 
-        val gameConfig = plugin
-            .gameDisplaysConfig
-            .games
-            .entries
-            .firstOrNull {
-                it.key.equals(
-                    game.type,
-                    ignoreCase = true
-                )
-            }
-            ?.value
-            ?: return null
+        val gameConfig = findGameDisplayConfig(
+            game.type
+        ) ?: return null
 
         return gameConfig
             .states
@@ -499,7 +479,8 @@ class GamesGui(
             )
             .replace(
                 "{map}",
-                game.map ?: "Unknown"
+                game.map
+                    ?: "Unknown"
             )
             .replace(
                 "{priority}",
@@ -520,11 +501,13 @@ class GamesGui(
         return text
             .replace(
                 "{game}",
-                gameType?.let {
-                    formatGameType(
-                        it
-                    )
-                } ?: "Games"
+                gameType
+                    ?.let {
+                        formatGameType(
+                            it
+                        )
+                    }
+                    ?: "Games"
             )
     }
 
@@ -552,7 +535,7 @@ class GamesGui(
     }
 
     /*
-     * Format
+     * Format game type
      */
 
     private fun formatGameType(

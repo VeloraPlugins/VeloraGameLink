@@ -9,19 +9,23 @@ import eu.okaeri.configs.annotation.Header
     "      VeloraGameLink Game Displays",
     "========================================",
     "",
-    "Configure game behaviour and sign displays",
-    "per game type.",
+    "Configure game behaviour, menu displays",
+    "and physical sign displays per game type.",
     "",
     "This configuration is used by:",
     "  - Physical game signs",
-    "  - QuickJoin NPCs",
+    "  - Games menus",
+    "  - QuickJoin",
+    "  - Other game selectors",
     "",
     "Important:",
     "  - Game states are custom strings supplied by",
     "    the game plugin.",
     "  - Sign locations are configured separately.",
-    "  - QuickJoin NPCs do not use sign text or",
-    "    sign materials.",
+    "  - Physical sign materials are never changed.",
+    "  - GUI items use their own display item.",
+    "  - A relative block behind the sign may be",
+    "    changed per game state.",
     "",
     "========================================",
 )
@@ -41,30 +45,171 @@ class GameDisplaysConfig : OkaeriConfig() {
         "    bedwars:"
     )
     var games = linkedMapOf(
-        "bedwars" to GameTypeDisplay()
+        "bedwars" to GameTypeDisplay().apply {
+            displayItem.material = "RED_BED"
+            displayItem.name = "<red><bold>BedWars</bold>"
+
+            displayItem.lore = listOf(
+                "<gray>Players: <white>{players}/{max_players}</white>",
+                "<gray>State: <white>{state}</white>",
+                "<gray>Map: <white>{map}</white>",
+                "",
+                "<green>▶ Click to join"
+            )
+
+            searchingForGames.relativeMaterial =
+                "GRAY_CONCRETE"
+
+            states["WAITING"]?.relativeMaterial =
+                "LIME_CONCRETE"
+
+            states["STARTING"]?.relativeMaterial =
+                "YELLOW_CONCRETE"
+
+            states["RUNNING"]?.relativeMaterial =
+                "RED_CONCRETE"
+
+            states["ENDING"]?.relativeMaterial =
+                "ORANGE_CONCRETE"
+        },
+
+        "skywars" to GameTypeDisplay().apply {
+            displayItem.material = "FEATHER"
+            displayItem.name = "<aqua><bold>SkyWars</bold>"
+
+            displayItem.lore = listOf(
+                "<gray>Players: <white>{players}/{max_players}</white>",
+                "<gray>State: <white>{state}</white>",
+                "<gray>Map: <white>{map}</white>",
+                "",
+                "<green>▶ Click to join"
+            )
+
+            searchingForGames.relativeMaterial =
+                "GRAY_CONCRETE"
+
+            states["WAITING"]?.relativeMaterial =
+                "LIGHT_BLUE_CONCRETE"
+
+            states["STARTING"]?.relativeMaterial =
+                "YELLOW_CONCRETE"
+
+            states["RUNNING"]?.relativeMaterial =
+                "BLUE_CONCRETE"
+
+            states["ENDING"]?.relativeMaterial =
+                "ORANGE_CONCRETE"
+        },
+
+        "survivalgames" to GameTypeDisplay().apply {
+            displayItem.material = "IRON_SWORD"
+            displayItem.name = "<gold><bold>Survival Games</bold>"
+
+            displayItem.lore = listOf(
+                "<gray>Players: <white>{players}/{max_players}</white>",
+                "<gray>State: <white>{state}</white>",
+                "<gray>Map: <white>{map}</white>",
+                "",
+                "<green>▶ Click to join"
+            )
+
+            searchingForGames.relativeMaterial =
+                "GRAY_CONCRETE"
+
+            states["WAITING"]?.relativeMaterial =
+                "LIME_CONCRETE"
+
+            states["STARTING"]?.relativeMaterial =
+                "YELLOW_CONCRETE"
+
+            states["RUNNING"]?.relativeMaterial =
+                "RED_CONCRETE"
+
+            states["ENDING"]?.relativeMaterial =
+                "ORANGE_CONCRETE"
+        },
+
+        "duels" to GameTypeDisplay().apply {
+            displayItem.material = "DIAMOND_SWORD"
+            displayItem.name = "<yellow><bold>Duels</bold>"
+
+            displayItem.lore = listOf(
+                "<gray>Players: <white>{players}/{max_players}</white>",
+                "<gray>State: <white>{state}</white>",
+                "<gray>Map: <white>{map}</white>",
+                "",
+                "<green>▶ Click to join"
+            )
+
+            searchingForGames.relativeMaterial =
+                "GRAY_CONCRETE"
+
+            states["WAITING"]?.relativeMaterial =
+                "LIME_CONCRETE"
+
+            states["STARTING"]?.relativeMaterial =
+                "YELLOW_CONCRETE"
+
+            states["RUNNING"]?.relativeMaterial =
+                "RED_CONCRETE"
+
+            states["ENDING"]?.relativeMaterial =
+                "ORANGE_CONCRETE"
+        }
     )
 
     class GameTypeDisplay : OkaeriConfig() {
 
         @Comment(
-            "Fallback sign display.",
+            "Display item used for this game type in GUI menus.",
             "",
-            "This display is shown when a configured sign",
-            "cannot currently be assigned a valid game.",
+            "This item is independent from physical signs.",
             "",
-            "This can happen when:",
-            "  - No game instances are available.",
-            "  - All available games are full.",
-            "  - A game's current state has no configured",
-            "    sign display.",
-            "  - A previously assigned game disappeared",
-            "    from Redis.",
+            "Available placeholders:",
+            "  {game}",
+            "  {game_id}",
+            "  {players}",
+            "  {max_players}",
+            "  {state}",
+            "  {server}",
+            "  {map}",
+            "  {priority}"
+        )
+        var displayItem = DisplayItem().apply {
+            material = "RED_BED"
+            name = "<#00B0FF><bold>BedWars</bold>"
+
+            lore = listOf(
+                "<gray>Players: <white>{players}/{max_players}</white>",
+                "<gray>State: <white>{state}</white>",
+                "<gray>Map: <white>{map}</white>",
+                "",
+                "<dark_gray>Server: {server}</dark_gray>",
+                "",
+                "<green>▶ Click to join"
+            )
+        }
+
+        @Comment(
+            "Fallback physical sign display.",
             "",
-            "This display is only used by physical signs.",
-            "QuickJoin NPCs do not use it."
+            "Shown when no visible game instance can",
+            "currently be assigned to this sign.",
+            "",
+            "The existing sign block is preserved.",
+            "Only the sign text, options and relative",
+            "state block are updated."
         )
         var searchingForGames = SignDisplay().apply {
-            material = "OAK_SIGN"
+            showState = false
+            allowJoin = false
+            priority = 0
+            relativeMaterial = "GRAY_CONCRETE"
+
+            signOptions.glow = true
+            signOptions.color = "GRAY"
+            signOptions.waxed = true
+            signOptions.side = "FRONT"
 
             lines = listOf(
                 "<gold><bold>BedWars</bold>",
@@ -75,40 +220,33 @@ class GameDisplaysConfig : OkaeriConfig() {
         }
 
         @Comment(
-            "Sign display configuration per game state.",
+            "Configuration per custom game state.",
             "",
-            "Each entry represents one custom state supplied",
-            "by the game plugin.",
+            "Each map key represents a state supplied by",
+            "the external game plugin.",
             "",
-            "Example:",
-            "  states:",
-            "    WAITING:",
-            "    STARTING:",
-            "    RUNNING:",
+            "The state configuration controls:",
+            "  - Whether players may join",
+            "  - Whether the game may occupy a sign",
+            "  - Selection priority",
+            "  - Sign text",
+            "  - Relative block material",
+            "  - Sign appearance and behaviour options",
             "",
-            "When a game's state matches one of these entries,",
-            "the corresponding sign display is used.",
-            "",
-            "If the current game state is not configured here,",
-            "the searching-for-games display is shown instead.",
-            "",
-            "The priority value is used when VeloraGameLink",
-            "needs to choose between multiple game instances.",
-            "",
-            "Higher priority values are preferred first.",
-            "When multiple games have the same priority,",
-            "the game with the highest player count is preferred.",
-            "",
-            "QuickJoin NPCs use the priority from these states",
-            "when selecting the best joinable game, but they",
-            "do not use the sign material or sign lines."
+            "Unknown states are considered non-joinable",
+            "and cannot occupy a physical GameLink sign."
         )
         var states = linkedMapOf(
             "WAITING" to SignDisplay().apply {
                 showState = true
                 allowJoin = true
                 priority = 10
-                material = "OAK_SIGN"
+                relativeMaterial = "LIME_CONCRETE"
+
+                signOptions.glow = true
+                signOptions.color = "LIME"
+                signOptions.waxed = true
+                signOptions.side = "FRONT"
 
                 lines = listOf(
                     "<gold><bold>BedWars</bold>",
@@ -122,7 +260,12 @@ class GameDisplaysConfig : OkaeriConfig() {
                 showState = true
                 allowJoin = true
                 priority = 20
-                material = "SPRUCE_SIGN"
+                relativeMaterial = "YELLOW_CONCRETE"
+
+                signOptions.glow = true
+                signOptions.color = "YELLOW"
+                signOptions.waxed = true
+                signOptions.side = "FRONT"
 
                 lines = listOf(
                     "<gold><bold>BedWars</bold>",
@@ -136,7 +279,12 @@ class GameDisplaysConfig : OkaeriConfig() {
                 showState = false
                 allowJoin = false
                 priority = 0
-                material = "DARK_OAK_SIGN"
+                relativeMaterial = "RED_CONCRETE"
+
+                signOptions.glow = true
+                signOptions.color = "RED"
+                signOptions.waxed = true
+                signOptions.side = "FRONT"
 
                 lines = listOf(
                     "<gold><bold>BedWars</bold>",
@@ -150,7 +298,12 @@ class GameDisplaysConfig : OkaeriConfig() {
                 showState = false
                 allowJoin = false
                 priority = -10
-                material = "BIRCH_SIGN"
+                relativeMaterial = "ORANGE_CONCRETE"
+
+                signOptions.glow = true
+                signOptions.color = "ORANGE"
+                signOptions.waxed = true
+                signOptions.side = "FRONT"
 
                 lines = listOf(
                     "<gold><bold>BedWars</bold>",
@@ -162,71 +315,27 @@ class GameDisplaysConfig : OkaeriConfig() {
         )
     }
 
-    class SignDisplay : OkaeriConfig() {
+    /*
+     * Display item
+     */
+
+    class DisplayItem : OkaeriConfig() {
 
         @Comment(
-            "Whether players are allowed to join game instances",
-            "currently using this state.",
+            "Minecraft material used for this game type",
+            "inside GUI menus.",
             "",
-            "This setting is used by:",
-            "  - Game sign clicks",
-            "  - QuickJoin NPCs",
-            "",
-            "If disabled, the game may still be displayed",
-            "on signs, but players cannot join it."
+            "Examples:",
+            "  RED_BED",
+            "  DIAMOND_SWORD",
+            "  FEATHER",
+            "  ENDER_PEARL",
+            "  PAPER"
         )
-        var allowJoin = false
+        var material = "PAPER"
 
         @Comment(
-            "Whether game instances in this state should",
-            "remain visible on game signs.",
-            "",
-            "If enabled:",
-            "  - The game may stay assigned to a sign.",
-            "  - The configured material and lines are shown.",
-            "",
-            "If disabled:",
-            "  - The game is removed from the sign assignment.",
-            "  - The sign becomes available for another game.",
-            "  - If no replacement game is available, the",
-            "    searching-for-games display is shown.",
-            "",
-            "This setting only affects physical game signs."
-        )
-        var showState = true
-
-        @Comment(
-            "Selection priority for game instances",
-            "currently using this state.",
-            "",
-            "Higher values are preferred first.",
-            "",
-            "Example:",
-            "  STARTING = 20",
-            "  WAITING  = 10",
-            "  RUNNING  = 0",
-            "",
-            "If two games have the same priority,",
-            "the game with the most players is preferred.",
-            "",
-            "Priority does not make a game joinable.",
-            "Joinability is controlled by 'allow-join'."
-        )
-        var priority = 0
-
-        @Comment(
-            "Minecraft sign material used while a game",
-            "is displayed in this state.",
-            "",
-            "This setting is only used by physical signs.",
-            "QuickJoin NPCs ignore this value."
-        )
-        var material = "OAK_SIGN"
-
-        @Comment(
-            "The four lines displayed on the sign.",
-            "",
-            "Minecraft signs contain exactly four lines.",
+            "Display name of the GUI item.",
             "",
             "MiniMessage formatting is supported.",
             "",
@@ -237,7 +346,134 @@ class GameDisplaysConfig : OkaeriConfig() {
             "  {max_players}",
             "  {state}",
             "  {server}",
-            "  {map}"
+            "  {map}",
+            "  {priority}"
+        )
+        var name = "<white>{game}</white>"
+
+        @Comment(
+            "Lore displayed on the GUI item.",
+            "",
+            "MiniMessage formatting is supported.",
+            "",
+            "Available placeholders:",
+            "  {game}",
+            "  {game_id}",
+            "  {players}",
+            "  {max_players}",
+            "  {state}",
+            "  {server}",
+            "  {map}",
+            "  {priority}"
+        )
+        var lore = listOf(
+            "<gray>Players: <white>{players}/{max_players}</white>",
+            "<gray>State: <white>{state}</white>",
+            "<gray>Map: <white>{map}</white>",
+            "",
+            "<green>▶ Click to join"
+        )
+    }
+
+    /*
+     * Sign display
+     */
+
+    class SignDisplay : OkaeriConfig() {
+
+        @Comment(
+            "Whether players may join game instances",
+            "currently using this state.",
+            "",
+            "Used by:",
+            "  - Game sign clicks",
+            "  - Games menus",
+            "  - QuickJoin",
+            "",
+            "This setting is independent from show-state."
+        )
+        var allowJoin = false
+
+        @Comment(
+            "Whether games in this state may occupy",
+            "physical GameLink signs.",
+            "",
+            "If disabled:",
+            "  - The game is removed from its current sign.",
+            "  - The sign becomes available for another game.",
+            "  - If no replacement is available, the",
+            "    searching-for-games display is shown."
+        )
+        var showState = true
+
+        @Comment(
+            "Selection priority for game instances",
+            "currently using this state.",
+            "",
+            "Higher values are preferred first.",
+            "",
+            "When two games have the same priority,",
+            "the game with the highest player count",
+            "is preferred.",
+            "",
+            "Priority does not make a game joinable."
+        )
+        var priority = 0
+
+        @Comment(
+            "Material used for the block directly behind",
+            "the physical GameLink sign.",
+            "",
+            "VeloraGameLink automatically calculates the",
+            "correct relative block from the sign facing.",
+            "",
+            "The material must be a valid block material.",
+            "",
+            "Examples:",
+            "  GRAY_CONCRETE",
+            "  LIME_CONCRETE",
+            "  YELLOW_CONCRETE",
+            "  RED_CONCRETE",
+            "  ORANGE_CONCRETE"
+        )
+        var relativeMaterial = "GRAY_CONCRETE"
+
+        @Comment(
+            "Physical sign behaviour and appearance options.",
+            "",
+            "These options are applied whenever the sign",
+            "is rendered."
+        )
+        var signOptions = SignOptions()
+
+        @Comment(
+            "The four lines displayed on the physical sign.",
+            "",
+            "Minecraft signs contain exactly four lines.",
+            "",
+            "MiniMessage formatting is supported.",
+            "",
+            "Available placeholders:",
+            "  {game}",
+            "    Game type.",
+            "",
+            "  {game_id}",
+            "    Unique game instance id.",
+            "",
+            "  {players}",
+            "    Current player count.",
+            "",
+            "  {max_players}",
+            "    Maximum player count.",
+            "",
+            "  {state}",
+            "    Current custom game state.",
+            "",
+            "  {server}",
+            "    Server hosting the game.",
+            "",
+            "  {map}",
+            "    Current map name."
         )
         var lines = listOf(
             "",
@@ -245,5 +481,67 @@ class GameDisplaysConfig : OkaeriConfig() {
             "",
             ""
         )
+    }
+
+    /*
+     * Sign options
+     */
+
+    class SignOptions : OkaeriConfig() {
+
+        @Comment(
+            "Whether the sign text should glow.",
+            "",
+            "Glow is applied to the configured sign side."
+        )
+        var glow = true
+
+        @Comment(
+            "Vanilla dye color applied to the sign text.",
+            "",
+            "Supported values:",
+            "  WHITE",
+            "  ORANGE",
+            "  MAGENTA",
+            "  LIGHT_BLUE",
+            "  YELLOW",
+            "  LIME",
+            "  PINK",
+            "  GRAY",
+            "  LIGHT_GRAY",
+            "  CYAN",
+            "  PURPLE",
+            "  BLUE",
+            "  BROWN",
+            "  GREEN",
+            "  RED",
+            "  BLACK",
+            "",
+            "This is the vanilla sign dye color.",
+            "MiniMessage colors inside the configured",
+            "lines are handled separately."
+        )
+        var color = "WHITE"
+
+        @Comment(
+            "Whether the physical sign should be waxed.",
+            "",
+            "Waxed signs cannot normally be edited",
+            "by players."
+        )
+        var waxed = true
+
+        @Comment(
+            "Which side of the physical sign is managed",
+            "by VeloraGameLink.",
+            "",
+            "Supported values:",
+            "  FRONT",
+            "  BACK",
+            "",
+            "The configured lines, glow and dye color",
+            "are applied to this side."
+        )
+        var side = "FRONT"
     }
 }

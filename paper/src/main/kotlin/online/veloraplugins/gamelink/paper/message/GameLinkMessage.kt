@@ -10,14 +10,53 @@ enum class GameLinkMessage(
     HELP(
         "help",
         """
-        {prefix}<gradient:#00B0FF:#2979FF><b>VeloraGameLink</b></gradient>
-        
-        <gray>Commands:</gray>
-        
-        <yellow>/gamelink reload</yellow> <dark_gray>-</dark_gray> <white>Reload the plugin.</white>
-        <yellow>/gamelink debug</yellow> <dark_gray>-</dark_gray> <white>Show debug status.</white>
-        <yellow>/gamelink games</yellow> <dark_gray>-</dark_gray> <white>Show registered game instances.</white>
-        """.trimIndent()
+    {prefix}<gradient:#00B0FF:#2979FF><b>VeloraGameLink</b></gradient>
+    
+    <gray>Commands:</gray>
+    
+    <yellow>/gamelink reload</yellow> <dark_gray>-</dark_gray> <white>Reload the plugin.</white>
+    <yellow>/gamelink debug</yellow> <dark_gray>-</dark_gray> <white>Show debug status.</white>
+    <yellow>/gamelink games</yellow> <dark_gray>-</dark_gray> <white>Show registered game instances.</white>
+    <yellow>/gamelink menu [gameType]</yellow> <dark_gray>-</dark_gray> <white>Open the games menu.</white>
+    <yellow>/gamelink quickjoin <gameType></yellow> <dark_gray>-</dark_gray> <white>Join the best available game.</white>
+    <yellow>/gamelink manage</yellow> <dark_gray>-</dark_gray> <white>Show management commands.</white>
+    """.trimIndent()
+    ),
+
+    MANAGE_HELP(
+        "manage_help",
+        """
+    {prefix}<gradient:#00B0FF:#2979FF><b>Game Management</b></gradient>
+    
+    <gray>Commands:</gray>
+    
+    <yellow>/gamelink manage register <id> <type> <state> <players> <maxPlayers> [map]</yellow>
+    <dark_gray>-</dark_gray> <white>Register a game instance.</white>
+    
+    <yellow>/gamelink manage unregister <id></yellow>
+    <dark_gray>-</dark_gray> <white>Unregister a game instance.</white>
+    
+    <yellow>/gamelink manage state <id> <state></yellow>
+    <dark_gray>-</dark_gray> <white>Update a game state.</white>
+    
+    <yellow>/gamelink manage players <id> <players></yellow>
+    <dark_gray>-</dark_gray> <white>Update a game player count.</white>
+    
+    <yellow>/gamelink manage map <id> <map></yellow>
+    <dark_gray>-</dark_gray> <white>Update a game map.</white>
+    
+    <yellow>/gamelink manage clearmap <id></yellow>
+    <dark_gray>-</dark_gray> <white>Clear a game map.</white>
+    
+    <yellow>/gamelink manage info <id></yellow>
+    <dark_gray>-</dark_gray> <white>Show information about a game instance.</white>
+    
+    <yellow>/gamelink manage addsign <gameType></yellow>
+    <dark_gray>-</dark_gray> <white>Register the sign you are looking at.</white>
+    
+    <yellow>/gamelink manage removesign</yellow>
+    <dark_gray>-</dark_gray> <white>Remove the registered sign you are looking at.</white>
+    """.trimIndent()
     ),
 
     RELOAD_SUCCESS(
@@ -130,6 +169,11 @@ enum class GameLinkMessage(
     JOINING_GAME(
         "joining_game",
         "{prefix}<green>Joining <white>{game}</white>..."
+    ),
+
+    JOIN_ALREADY_PENDING(
+        "join_already_pending",
+        "{prefix}<red>You already have a pending join request for <white>{game}</white>."
     ),
 
     NO_AVAILABLE_GAME(

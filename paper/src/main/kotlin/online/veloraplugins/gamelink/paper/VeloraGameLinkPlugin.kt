@@ -7,6 +7,7 @@ import online.velora.framework.redis.RedisManager
 import online.velora.framework.redis.config.RedisConfig
 import online.veloraplugins.engine.VeloraPlugin
 import online.veloraplugins.engine.hooks.papi.PlaceholderAPIHook
+import online.veloraplugins.engine.utils.plugin.PluginUtil
 import online.veloraplugins.gamelink.api.VeloraGameLinkProvider
 import online.veloraplugins.gamelink.api.events.GameRegisteredEvent
 import online.veloraplugins.gamelink.api.events.GameRemovedEvent
@@ -19,6 +20,8 @@ import online.veloraplugins.gamelink.paper.configurations.GameLinkConfig
 import online.veloraplugins.gamelink.paper.configurations.GameSignsConfig
 import online.veloraplugins.gamelink.paper.configurations.GamesMenuConfig
 import online.veloraplugins.gamelink.paper.eventbus.RedisEventTransport
+import online.veloraplugins.gamelink.paper.listeners.GameSignBreakListener
+import online.veloraplugins.gamelink.paper.listeners.GameSignCreateListener
 import online.veloraplugins.gamelink.paper.listeners.GameSignListener
 import online.veloraplugins.gamelink.paper.message.GameLinkMessage
 import online.veloraplugins.gamelink.paper.placeholder.PlaceholderRegistry
@@ -143,7 +146,9 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
             gameSignService.refreshAll()
         }
 
-        registerPlaceholderAPI()
+        if (PluginUtil.hasPlugin("PlaceholderAPI"))
+            registerPlaceholderAPI()
+
         loadHooks()
 
         info(
@@ -317,28 +322,6 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
             display.lines.size == 4
         ) {
             "Sign display '$gameType/$state' must contain exactly 4 lines."
-        }
-
-        require(
-            display.material.isNotBlank()
-        ) {
-            "Sign display '$gameType/$state' has a blank material."
-        }
-
-        val material = Material.matchMaterial(
-            display.material
-        )
-
-        require(
-            material != null
-        ) {
-            "Sign display '$gameType/$state' contains invalid material '${display.material}'."
-        }
-
-        require(
-            isSignMaterial(material)
-        ) {
-            "Material '${display.material}' for '$gameType/$state' is not a sign material."
         }
     }
 
@@ -621,11 +604,20 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
             return
         }
 
-        registerListeners(
-            GameSignListener(
-                this
+        if (pluginConfig.server.type == ServerType.LOBBY) {
+
+            registerListeners(
+                GameSignListener(
+                    this
+                ),
+                GameSignCreateListener(
+                    this
+                ),
+                GameSignBreakListener(
+                    this
+                )
             )
-        )
+        }
 
         debug(
             "LISTENER",
