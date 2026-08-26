@@ -97,6 +97,36 @@ enum class GameLinkMessage(
     """.trimIndent()
     ),
 
+    SIGN_NOT_FOUND(
+        "sign_not_found",
+        "{prefix}<red>You must look at a sign."
+    ),
+
+    SIGN_ALREADY_EXISTS(
+        "sign_already_exists",
+        "{prefix}<red>This sign is already registered."
+    ),
+
+    GAME_TYPE_NOT_FOUND(
+        "game_type_not_found",
+        "{prefix}<red>Game type <white>{type}</white> is not configured."
+    ),
+
+    SIGN_ADDED(
+        "sign_added",
+        "{prefix}<green>Added sign for <white>{type}</white> at <white>{world} {x} {y} {z}</white>."
+    ),
+
+    SIGN_NOT_REGISTERED(
+        "sign_not_registered",
+        "{prefix}<red>This sign is not registered."
+    ),
+
+    SIGN_REMOVED(
+        "sign_removed",
+        "{prefix}<green>Removed <white>{type}</white> sign at <white>{world} {x} {y} {z}</white>."
+    ),
+
     JOINING_GAME(
         "joining_game",
         "{prefix}<green>Joining <white>{game}</white>..."

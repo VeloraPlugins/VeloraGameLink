@@ -3,8 +3,11 @@ package online.veloraplugins.gamelink.paper.commands
 import com.github.shynixn.mccoroutine.bukkit.scope
 import online.veloraplugins.engine.message.audience
 import online.veloraplugins.gamelink.paper.VeloraGameLinkPlugin
+import online.veloraplugins.gamelink.paper.configurations.GameSignsConfig
 import online.veloraplugins.gamelink.paper.message.GameLinkMessage
+import org.bukkit.block.Sign
 import org.bukkit.command.CommandSender
+import org.bukkit.entity.Player
 import org.incendo.cloud.description.CommandDescription
 import org.incendo.cloud.kotlin.coroutines.extension.suspendingHandler
 import org.incendo.cloud.parser.standard.IntegerParser
@@ -26,6 +29,289 @@ class GameManagementCommands(
             .permission(
                 permission
             )
+
+        /*
+        * /gamelink manage addsign <gameType>
+        */
+
+        plugin.commandManager.manager.command(
+
+            root.literal("addsign")
+                .permission("$permission.addsign")
+                .required(
+                    "gameType",
+                    StringParser.stringParser()
+                )
+                .commandDescription(
+                    CommandDescription.commandDescription(
+                        "Add the targeted sign to GameLink."
+                    )
+                )
+                .suspendingHandler(plugin.scope) { context ->
+
+                    val sender = context.sender()
+
+                    if (sender !is Player) {
+
+                        plugin.messages.send(
+                            sender.audience(),
+                            GameLinkMessage.ONLY_PLAYERS
+                        )
+
+                        return@suspendingHandler
+                    }
+
+                    val gameType = context.get<String>(
+                        "gameType"
+                    )
+
+                    val targetBlock = sender.getTargetBlockExact(
+                        6
+                    ) ?: run {
+
+                        plugin.messages.send(
+                            sender.audience(),
+                            GameLinkMessage.SIGN_NOT_FOUND
+                        )
+
+                        return@suspendingHandler
+                    }
+
+                    if (targetBlock.state !is Sign) {
+
+                        plugin.messages.send(
+                            sender.audience(),
+                            GameLinkMessage.SIGN_NOT_FOUND
+                        )
+
+                        return@suspendingHandler
+                    }
+
+                    val displayConfig = plugin
+                        .gameDisplaysConfig
+                        .games
+                        .entries
+                        .firstOrNull {
+                            it.key.equals(
+                                gameType,
+                                ignoreCase = true
+                            )
+                        }
+                        ?.value
+
+                    if (displayConfig == null) {
+
+                        plugin.messages.send(
+                            sender.audience(),
+                            GameLinkMessage.GAME_TYPE_NOT_FOUND,
+                            "type" to gameType
+                        )
+
+                        return@suspendingHandler
+                    }
+
+                    val location =
+                        targetBlock.location
+
+                    val alreadyExists = plugin
+                        .gameSignsConfig
+                        .signs
+                        .any { sign ->
+
+                            sign.location.world.equals(
+                                location.world.name,
+                                ignoreCase = true
+                            ) &&
+                                    sign.location.x == location.blockX &&
+                                    sign.location.y == location.blockY &&
+                                    sign.location.z == location.blockZ
+                        }
+
+                    if (alreadyExists) {
+
+                        plugin.messages.send(
+                            sender.audience(),
+                            GameLinkMessage.SIGN_ALREADY_EXISTS
+                        )
+
+                        return@suspendingHandler
+                    }
+
+                    val signConfig =
+                        GameSignsConfig.GameSign().apply {
+
+                            this.gameType =
+                                gameType
+
+                            this.location.world =
+                                location.world.name
+
+                            this.location.x =
+                                location.blockX
+
+                            this.location.y =
+                                location.blockY
+
+                            this.location.z =
+                                location.blockZ
+                        }
+
+                    plugin.gameSignsConfig.signs += signConfig
+
+                    plugin.gameSignsConfig.save()
+
+                    /*
+                     * Immediately refresh this game type so
+                     * the newly registered sign becomes active.
+                     */
+
+                    plugin.gameSignService.refreshGameType(
+                        gameType
+                    )
+
+                    plugin.messages.send(
+                        sender.audience(),
+                        GameLinkMessage.SIGN_ADDED,
+                        "type" to gameType,
+                        "world" to location.world.name,
+                        "x" to location.blockX.toString(),
+                        "y" to location.blockY.toString(),
+                        "z" to location.blockZ.toString()
+                    )
+
+                    plugin.debug(
+                        "COMMAND",
+                        "Added sign for game type '$gameType' at " +
+                                "${location.world.name}:" +
+                                "${location.blockX}," +
+                                "${location.blockY}," +
+                                "${location.blockZ}."
+                    )
+                }
+        )
+
+        /*
+        * /gamelink manage removesign
+        */
+
+        plugin.commandManager.manager.command(
+
+            root.literal("removesign")
+                .permission("$permission.removesign")
+                .commandDescription(
+                    CommandDescription.commandDescription(
+                        "Remove the targeted sign from GameLink."
+                    )
+                )
+                .suspendingHandler(plugin.scope) { context ->
+
+                    val sender = context.sender()
+
+                    if (sender !is Player) {
+
+                        plugin.messages.send(
+                            sender.audience(),
+                            GameLinkMessage.ONLY_PLAYERS
+                        )
+
+                        return@suspendingHandler
+                    }
+
+                    val targetBlock = sender.getTargetBlockExact(
+                        6
+                    ) ?: run {
+
+                        plugin.messages.send(
+                            sender.audience(),
+                            GameLinkMessage.SIGN_NOT_FOUND
+                        )
+
+                        return@suspendingHandler
+                    }
+
+                    if (targetBlock.state !is Sign) {
+
+                        plugin.messages.send(
+                            sender.audience(),
+                            GameLinkMessage.SIGN_NOT_FOUND
+                        )
+
+                        return@suspendingHandler
+                    }
+
+                    val location =
+                        targetBlock.location
+
+                    val signConfig = plugin
+                        .gameSignsConfig
+                        .signs
+                        .firstOrNull { sign ->
+
+                            sign.location.world.equals(
+                                location.world.name,
+                                ignoreCase = true
+                            ) &&
+                                    sign.location.x == location.blockX &&
+                                    sign.location.y == location.blockY &&
+                                    sign.location.z == location.blockZ
+                        }
+                        ?: run {
+
+                            plugin.messages.send(
+                                sender.audience(),
+                                GameLinkMessage.SIGN_NOT_REGISTERED
+                            )
+
+                            return@suspendingHandler
+                        }
+
+                    plugin.gameSignsConfig.signs =
+                        plugin.gameSignsConfig
+                            .signs
+                            .filterNot {
+                                it === signConfig
+                            }
+
+                    plugin.gameSignsConfig.save()
+
+                    /*
+                     * Remove any existing assignment for
+                     * this physical sign immediately.
+                     */
+
+                    plugin.gameSignService.clearAssignment(
+                        location
+                    )
+
+                    /*
+                     * Refresh the remaining signs for this
+                     * game type so allocations stay valid.
+                     */
+
+                    plugin.gameSignService.refreshGameType(
+                        signConfig.gameType
+                    )
+
+                    plugin.messages.send(
+                        sender.audience(),
+                        GameLinkMessage.SIGN_REMOVED,
+                        "type" to signConfig.gameType,
+                        "world" to location.world.name,
+                        "x" to location.blockX.toString(),
+                        "y" to location.blockY.toString(),
+                        "z" to location.blockZ.toString()
+                    )
+
+                    plugin.debug(
+                        "COMMAND",
+                        "Removed sign for game type '${signConfig.gameType}' at " +
+                                "${location.world.name}:" +
+                                "${location.blockX}," +
+                                "${location.blockY}," +
+                                "${location.blockZ}."
+                    )
+                }
+        )
 
         /*
          * /gamelink game register

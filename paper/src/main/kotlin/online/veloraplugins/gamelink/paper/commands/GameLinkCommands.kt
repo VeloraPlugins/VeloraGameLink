@@ -3,8 +3,10 @@ package online.veloraplugins.gamelink.paper.commands
 import com.github.shynixn.mccoroutine.bukkit.scope
 import online.veloraplugins.engine.message.audience
 import online.veloraplugins.gamelink.paper.VeloraGameLinkPlugin
+import online.veloraplugins.gamelink.paper.configurations.GameSignsConfig
 import online.veloraplugins.gamelink.paper.gui.GamesGui
 import online.veloraplugins.gamelink.paper.message.GameLinkMessage
+import org.bukkit.block.Sign
 import org.bukkit.entity.Player
 import org.incendo.cloud.description.CommandDescription
 import org.incendo.cloud.kotlin.coroutines.extension.suspendingHandler
