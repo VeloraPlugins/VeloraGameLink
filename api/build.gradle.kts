@@ -45,7 +45,7 @@ publishing {
                 project.group.toString()
 
             artifactId =
-                "velora-gameapi"
+                "velora-gamelink"
 
             version =
                 project.version.toString()

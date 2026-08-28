@@ -13,7 +13,7 @@ repositories {
 dependencies {
 
     implementation(project(":api"))
-    implementation("online.veloraplugins:velora-engine:3.4.2")
+    implementation("online.veloraplugins:velora-engine:3.4.3")
     compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
 
     compileOnly("com.github.shynixn.mccoroutine:mccoroutine-bukkit-api:2.22.0") {
