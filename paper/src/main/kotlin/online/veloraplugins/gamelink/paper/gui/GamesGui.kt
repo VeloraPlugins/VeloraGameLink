@@ -242,7 +242,7 @@ class GamesGui(
     /*
      * Game item
      *
-     * The GUI item configuration is resolved from
+     * GUI item configuration is resolved from
      * game-displays.yml per game type.
      */
 
@@ -351,6 +351,7 @@ class GamesGui(
                         }
                 )
                 .asGuiItem {
+
                     action()
                 }
         )
@@ -358,17 +359,20 @@ class GamesGui(
 
     /*
      * Priority
+     *
+     * Priority is resolved from the first
+     * matching display condition.
      */
 
     private fun getPriority(
         game: GameInstance
     ): Int {
 
-        return findStateDisplay(
-            game
-        )
-            ?.priority
-            ?: Int.MIN_VALUE
+        return plugin
+            .gameConditionResolver
+            .getPriority(
+                game
+            )
     }
 
     /*
@@ -386,30 +390,6 @@ class GamesGui(
             .firstOrNull {
                 it.key.equals(
                     gameType,
-                    ignoreCase = true
-                )
-            }
-            ?.value
-    }
-
-    /*
-     * State display configuration
-     */
-
-    private fun findStateDisplay(
-        game: GameInstance
-    ): GameDisplaysConfig.SignDisplay? {
-
-        val gameConfig = findGameDisplayConfig(
-            game.type
-        ) ?: return null
-
-        return gameConfig
-            .states
-            .entries
-            .firstOrNull {
-                it.key.equals(
-                    game.state,
                     ignoreCase = true
                 )
             }

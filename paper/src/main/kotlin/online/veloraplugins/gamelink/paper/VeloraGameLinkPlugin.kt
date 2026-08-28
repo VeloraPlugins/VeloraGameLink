@@ -5,6 +5,7 @@ import online.velora.framework.language.MessagesConfig
 import online.velora.framework.language.MessagesService
 import online.velora.framework.redis.RedisManager
 import online.velora.framework.redis.config.RedisConfig
+import online.velora.framework.utils.condition.ConditionParser
 import online.veloraplugins.engine.VeloraPlugin
 import online.veloraplugins.engine.hooks.papi.PlaceholderAPIHook
 import online.veloraplugins.engine.utils.plugin.PluginUtil
@@ -25,6 +26,7 @@ import online.veloraplugins.gamelink.paper.listeners.GameSignCreateListener
 import online.veloraplugins.gamelink.paper.listeners.GameSignListener
 import online.veloraplugins.gamelink.paper.message.GameLinkMessage
 import online.veloraplugins.gamelink.paper.placeholder.PlaceholderRegistry
+import online.veloraplugins.gamelink.paper.services.GameConditionResolver
 import online.veloraplugins.gamelink.paper.services.GameInstanceService
 import online.veloraplugins.gamelink.paper.services.GameJoinService
 import online.veloraplugins.gamelink.paper.services.GameLinkService
@@ -32,6 +34,7 @@ import online.veloraplugins.gamelink.paper.services.GameRedisService
 import online.veloraplugins.gamelink.paper.services.GameSelectorService
 import online.veloraplugins.gamelink.paper.services.GameSignService
 import online.veloraplugins.gamelink.paper.tasks.GameHeartbeatTask
+import org.bukkit.DyeColor
 import org.bukkit.Material
 
 class VeloraGameLinkPlugin : VeloraPlugin() {
@@ -100,6 +103,9 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
         private set
 
     lateinit var gameLinkService: GameLinkService
+        private set
+
+    lateinit var gameConditionResolver: GameConditionResolver
         private set
 
     /*
@@ -238,9 +244,19 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
             }
 
             require(
-                displayConfig.states.isNotEmpty()
+                displayConfig.conditions.isNotEmpty()
             ) {
-                "Game '$gameType' must define at least one state."
+                "Game '$gameType' must define at least one condition."
+            }
+
+            /*
+             * Display item
+             */
+
+            require(
+                displayConfig.displayItem.material.isNotBlank()
+            ) {
+                "Game '$gameType' display item material cannot be blank."
             }
 
             /*
@@ -249,35 +265,46 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
 
             validateSignDisplay(
                 gameType = gameType,
-                state = "searching-for-games",
+                condition = "searching-for-games",
                 display = displayConfig.searchingForGames
             )
 
             /*
-             * States
+             * Conditions
              */
 
-            displayConfig.states.forEach { (state, signDisplay) ->
+            displayConfig.conditions.forEachIndexed { index, display ->
 
                 require(
-                    state.isNotBlank()
+                    display.condition.isNotBlank()
                 ) {
-                    "Game '$gameType' contains a blank state."
+                    "Game '$gameType' condition #${index + 1} cannot be blank."
                 }
 
-                validateSignDisplay(
+                validateConditionDisplay(
                     gameType = gameType,
-                    state = state,
-                    display = signDisplay
+                    index = index,
+                    display = display
                 )
 
-                if (signDisplay.allowJoin && !signDisplay.showState) {
+                /*
+                 * A joinable condition does not necessarily
+                 * need to be visible on physical signs.
+                 *
+                 * QuickJoin and menus may still use it.
+                 */
+
+                if (
+                    display.allowJoin &&
+                    !display.showState
+                ) {
 
                     debug(
                         "CONFIG",
-                        "Game '$gameType' state '$state' has " +
+                        "Game '$gameType' condition #${index + 1} " +
+                                "'${display.condition}' has " +
                                 "allowJoin=true while showState=false. " +
-                                "QuickJoin may still select this state, " +
+                                "QuickJoin and menus may still select this game, " +
                                 "but it will not occupy a physical sign."
                     )
                 }
@@ -314,14 +341,114 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
 
     private fun validateSignDisplay(
         gameType: String,
-        state: String,
+        condition: String,
         display: GameDisplaysConfig.SignDisplay
     ) {
 
         require(
             display.lines.size == 4
         ) {
-            "Sign display '$gameType/$state' must contain exactly 4 lines."
+            "Sign display '$gameType/$condition' " +
+                    "must contain exactly 4 lines."
+        }
+
+        require(
+            display.relativeMaterial.isNotBlank()
+        ) {
+            "Sign display '$gameType/$condition' " +
+                    "has a blank relative material."
+        }
+
+        val relativeMaterial =
+            Material.matchMaterial(
+                display.relativeMaterial
+            )
+
+        require(
+            relativeMaterial != null &&
+                    relativeMaterial.isBlock
+        ) {
+            "Sign display '$gameType/$condition' " +
+                    "has invalid relative material '${display.relativeMaterial}'."
+        }
+
+        validateSignOptions(
+            gameType = gameType,
+            source = condition,
+            options = display.signOptions
+        )
+    }
+
+    private fun validateConditionDisplay(
+        gameType: String,
+        index: Int,
+        display: GameDisplaysConfig.ConditionDisplay
+    ) {
+
+        require(
+            display.lines.size == 4
+        ) {
+            "Condition #${index + 1} for game '$gameType' " +
+                    "must contain exactly 4 sign lines."
+        }
+
+        require(
+            display.relativeMaterial.isNotBlank()
+        ) {
+            "Condition #${index + 1} for game '$gameType' " +
+                    "has a blank relative material."
+        }
+
+        val relativeMaterial =
+            Material.matchMaterial(
+                display.relativeMaterial
+            )
+
+        require(
+            relativeMaterial != null &&
+                    relativeMaterial.isBlock
+        ) {
+            "Condition #${index + 1} for game '$gameType' " +
+                    "has invalid relative material '${display.relativeMaterial}'."
+        }
+
+        validateSignOptions(
+            gameType = gameType,
+            source = "condition #${index + 1}",
+            options = display.signOptions
+        )
+    }
+
+    private fun validateSignOptions(
+        gameType: String,
+        source: String,
+        options: GameDisplaysConfig.SignOptions
+    ) {
+
+        require(
+            runCatching {
+                DyeColor.valueOf(
+                    options.color.uppercase()
+                )
+            }.isSuccess
+        ) {
+            "Sign display '$gameType/$source' " +
+                    "has invalid dye color '${options.color}'."
+        }
+
+        require(
+            options.side.equals(
+                "FRONT",
+                ignoreCase = true
+            ) ||
+                    options.side.equals(
+                        "BACK",
+                        ignoreCase = true
+                    )
+        ) {
+            "Sign display '$gameType/$source' " +
+                    "has invalid side '${options.side}'. " +
+                    "Supported values are FRONT and BACK."
         }
     }
 
@@ -517,6 +644,13 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
         gameRedisService.start()
 
         /*
+         * Game Condition Resolver
+         */
+        gameConditionResolver = GameConditionResolver(
+            this
+        )
+
+        /*
          * Network game selection
          */
 
@@ -531,7 +665,8 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
 
         gameSignService = GameSignService(
             plugin = this,
-            gameRedisService = gameRedisService
+            gameRedisService = gameRedisService,
+            conditionResolver = gameConditionResolver
         )
 
         /*
@@ -554,7 +689,6 @@ class VeloraGameLinkPlugin : VeloraPlugin() {
             gameSelectorService = gameSelectorService,
             eventBusManager = eventBusManager
         )
-
         debug(
             "SERVICE",
             "Loaded GameLink services."

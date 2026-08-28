@@ -18,15 +18,46 @@ import java.util.concurrent.ConcurrentHashMap
 
 class GameSignService(
     private val plugin: VeloraGameLinkPlugin,
-    private val gameRedisService: GameRedisService
+    private val gameRedisService: GameRedisService,
+    private val conditionResolver: GameConditionResolver
 ) {
 
     /*
      * Sign assignments
+     *
+     * sign location -> game id
      */
 
     private val assignments =
         ConcurrentHashMap<String, String>()
+
+    /*
+     * Render versions
+     *
+     * Prevents older scheduled renders from
+     * overwriting a newer sign state.
+     */
+
+    private val renderVersions =
+        ConcurrentHashMap<String, Long>()
+
+    /*
+     * Internal display
+     *
+     * ConditionDisplay and SignDisplay are separate
+     * configuration classes, so they are normalized
+     * before rendering.
+     */
+
+    private data class ResolvedDisplay(
+        val condition: String?,
+        val allowJoin: Boolean,
+        val showState: Boolean,
+        val priority: Int,
+        val relativeMaterial: String,
+        val signOptions: GameDisplaysConfig.SignOptions,
+        val lines: List<String>
+    )
 
     /*
      * Refresh all
@@ -38,7 +69,7 @@ class GameSignService(
             "SIGN",
             "Starting full sign refresh. " +
                     "Configured signs=${plugin.gameSignsConfig.signs.size}, " +
-                    "current assignments=${assignments.size}."
+                    "assignments=${assignments.size}."
         )
 
         val groupedSigns = plugin
@@ -48,19 +79,11 @@ class GameSignService(
                 it.gameType.lowercase()
             }
 
-        plugin.debug(
-            "SIGN",
-            "Grouped signs into ${groupedSigns.size} game type(s): " +
-                    groupedSigns.entries.joinToString {
-                        "${it.key}=${it.value.size}"
-                    }
-        )
-
         groupedSigns.forEach { (gameType, signs) ->
 
             plugin.debug(
                 "SIGN",
-                "Refreshing game type '$gameType' with ${signs.size} sign(s)."
+                "Refreshing ${signs.size} sign(s) for game type '$gameType'."
             )
 
             refreshGameType(
@@ -74,8 +97,7 @@ class GameSignService(
         plugin.debug(
             "SIGN",
             "Finished full sign refresh. " +
-                    "Configured signs=${plugin.gameSignsConfig.signs.size}, " +
-                    "active assignments=${assignments.size}."
+                    "Assignments=${assignments.size}."
         )
     }
 
@@ -86,11 +108,6 @@ class GameSignService(
     fun refreshGameType(
         gameType: String
     ) {
-
-        plugin.debug(
-            "SIGN",
-            "Requested sign refresh for game type '$gameType'."
-        )
 
         val signs = plugin
             .gameSignsConfig
@@ -104,7 +121,8 @@ class GameSignService(
 
         plugin.debug(
             "SIGN",
-            "Found ${signs.size} configured sign(s) for '$gameType'."
+            "Requested refresh for game type '$gameType'. " +
+                    "Configured signs=${signs.size}."
         )
 
         refreshGameType(
@@ -126,30 +144,26 @@ class GameSignService(
 
             plugin.debug(
                 "SIGN",
-                "Skipping '$gameType' refresh because no signs are configured."
+                "Skipping refresh for '$gameType': no signs configured."
             )
 
             return
         }
 
-        val gameConfig = findGameDisplayConfig(
-            gameType
-        ) ?: run {
-
-            plugin.debug(
-                "SIGN",
-                "Unable to refresh signs for '$gameType': " +
-                        "display configuration not found."
+        val gameConfig =
+            conditionResolver.findGameDisplayConfig(
+                gameType
             )
+                ?: run {
 
-            return
-        }
+                    plugin.debug(
+                        "SIGN",
+                        "Unable to refresh '$gameType': " +
+                                "no display configuration found."
+                    )
 
-        plugin.debug(
-            "SIGN",
-            "Resolved display config for '$gameType'. " +
-                    "Configured states=${gameConfig.states.keys.joinToString()}."
-        )
+                    return
+                }
 
         val networkGames =
             gameRedisService.getByType(
@@ -158,52 +172,25 @@ class GameSignService(
 
         plugin.debug(
             "SIGN",
-            "Redis returned ${networkGames.size} game(s) for '$gameType'."
+            "Found ${networkGames.size} network game(s) for '$gameType'."
         )
 
-        networkGames.forEach { game ->
-
-            val stateDisplay = findStateDisplay(
-                gameConfig = gameConfig,
-                state = game.state
-            )
-
-            plugin.debug(
-                "SIGN",
-                "Game '${game.id}': " +
-                        "type='${game.type}', " +
-                        "state='${game.state}', " +
-                        "players=${game.players}/${game.maxPlayers}, " +
-                        "stateConfig=${stateDisplay != null}, " +
-                        "showState=${stateDisplay?.showState}, " +
-                        "allowJoin=${stateDisplay?.allowJoin}, " +
-                        "priority=${stateDisplay?.priority}, " +
-                        "relativeMaterial='${stateDisplay?.relativeMaterial}'."
-            )
-        }
+        /*
+         * Determine which games may currently
+         * occupy a sign.
+         */
 
         val displayableGames = networkGames
             .asSequence()
-            .filter { game ->
-
-                val displayable = isDisplayable(
-                    game = game,
-                    gameConfig = gameConfig
+            .filter {
+                conditionResolver.isDisplayable(
+                    it
                 )
-
-                plugin.debug(
-                    "SIGN",
-                    "Displayability check for game '${game.id}' " +
-                            "state='${game.state}': $displayable."
-                )
-
-                displayable
             }
             .sortedWith(
                 compareByDescending<GameInstance> {
-                    getPriority(
-                        game = it,
-                        gameConfig = gameConfig
+                    conditionResolver.getPriority(
+                        it
                     )
                 }.thenByDescending {
                     it.players
@@ -219,24 +206,28 @@ class GameSignService(
                     if (displayableGames.isEmpty()) {
                         "none."
                     } else {
-                        displayableGames.joinToString {
-                            "${it.id}[state=${it.state},priority=${getPriority(it, gameConfig)},players=${it.players}]"
+                        displayableGames.joinToString { game ->
+                            "${game.id}" +
+                                    "[state=${game.state}," +
+                                    "players=${game.players}/${game.maxPlayers}," +
+                                    "priority=${conditionResolver.getPriority(game)}]"
                         }
                     }
         )
 
+        /*
+         * Reserve existing valid assignments.
+         *
+         * One game may only occupy one sign.
+         */
+
         val usedGameIds =
             mutableSetOf<String>()
 
-        /*
-         * Reserve valid existing assignments
-         */
-
         signs.forEach { signConfig ->
 
-            val location = signConfig
-                .location
-                .toLocation()
+            val location =
+                signConfig.location.toLocation()
 
             if (location == null) {
 
@@ -259,82 +250,62 @@ class GameSignService(
 
             val gameId =
                 assignments[key]
-
-            if (gameId == null) {
-
-                plugin.debug(
-                    "SIGN",
-                    "Sign '$key' currently has no assignment."
-                )
-
-                return@forEach
-            }
-
-            plugin.debug(
-                "SIGN",
-                "Sign '$key' currently assigned to '$gameId'."
-            )
+                    ?: return@forEach
 
             val game =
                 gameRedisService.get(
                     gameId
                 )
+                    ?: run {
 
-            if (game == null) {
+                        plugin.debug(
+                            "SIGN",
+                            "Existing assignment '$gameId' for '$key' " +
+                                    "no longer exists in Redis."
+                        )
+
+                        assignments.remove(
+                            key
+                        )
+
+                        return@forEach
+                    }
+
+            val valid =
+                game.type.equals(
+                    gameType,
+                    ignoreCase = true
+                ) &&
+                        conditionResolver.isDisplayable(
+                            game
+                        ) &&
+                        game.id !in usedGameIds
+
+            if (!valid) {
 
                 plugin.debug(
                     "SIGN",
-                    "Assigned game '$gameId' for sign '$key' " +
-                            "no longer exists in Redis."
+                    "Existing assignment '${game.id}' on '$key' is invalid."
+                )
+
+                assignments.remove(
+                    key
                 )
 
                 return@forEach
             }
 
-            val displayable = isDisplayable(
-                game = game,
-                gameConfig = gameConfig
-            )
+            usedGameIds +=
+                game.id
 
             plugin.debug(
                 "SIGN",
-                "Existing assignment '$gameId' on '$key': " +
-                        "typeMatch=${game.type.equals(gameType, true)}, " +
-                        "displayable=$displayable, " +
-                        "alreadyUsed=${game.id in usedGameIds}."
+                "Reserved existing assignment '${game.id}' for '$key'."
             )
-
-            if (
-                game.type.equals(
-                    gameType,
-                    ignoreCase = true
-                ) &&
-                displayable &&
-                game.id !in usedGameIds
-            ) {
-
-                usedGameIds +=
-                    game.id
-
-                plugin.debug(
-                    "SIGN",
-                    "Reserved existing game '${game.id}' for sign '$key'."
-                )
-            }
         }
 
-        plugin.debug(
-            "SIGN",
-            "Reserved game ids for '$gameType': " +
-                    if (usedGameIds.isEmpty()) {
-                        "none."
-                    } else {
-                        usedGameIds.joinToString()
-                    }
-        )
-
         /*
-         * Refresh signs
+         * Refresh every configured sign.
          */
 
         signs.forEach { signConfig ->
@@ -361,41 +332,29 @@ class GameSignService(
         usedGameIds: MutableSet<String>
     ) {
 
-        val location = signConfig
-            .location
-            .toLocation()
-            ?: run {
+        val location =
+            signConfig.location.toLocation()
+                ?: run {
 
-                plugin.debug(
-                    "SIGN",
-                    "Unable to resolve sign location " +
-                            "'${signConfig.location.world}:" +
-                            "${signConfig.location.x}," +
-                            "${signConfig.location.y}," +
-                            "${signConfig.location.z}'."
-                )
+                    plugin.debug(
+                        "SIGN",
+                        "Unable to resolve sign location for '$gameType'."
+                    )
 
-                return
-            }
+                    return
+                }
 
         val key =
             signKey(
                 location
             )
 
-        plugin.debug(
-            "SIGN",
-            "Refreshing sign '$key' for type '$gameType'."
-        )
-
         val assignedGameId =
             assignments[key]
 
-        plugin.debug(
-            "SIGN",
-            "Sign '$key' existing assignment=" +
-                    "'${assignedGameId ?: "NONE"}'."
-        )
+        /*
+         * Keep current assignment if it is still valid.
+         */
 
         if (assignedGameId != null) {
 
@@ -404,27 +363,14 @@ class GameSignService(
                     assignedGameId
                 )
 
-            plugin.debug(
-                "SIGN",
-                "Fetched existing assigned game '$assignedGameId': " +
-                        if (assignedGame == null) {
-                            "not found."
-                        } else {
-                            "state='${assignedGame.state}', " +
-                                    "type='${assignedGame.type}', " +
-                                    "players=${assignedGame.players}/${assignedGame.maxPlayers}."
-                        }
-            )
-
             if (
                 assignedGame != null &&
                 assignedGame.type.equals(
                     gameType,
                     ignoreCase = true
                 ) &&
-                isDisplayable(
-                    game = assignedGame,
-                    gameConfig = gameConfig
+                conditionResolver.isDisplayable(
+                    assignedGame
                 )
             ) {
 
@@ -433,7 +379,7 @@ class GameSignService(
 
                 plugin.debug(
                     "SIGN",
-                    "Keeping assignment '${assignedGame.id}' on sign '$key'."
+                    "Keeping game '${assignedGame.id}' assigned to '$key'."
                 )
 
                 updateSign(
@@ -455,19 +401,16 @@ class GameSignService(
 
             plugin.debug(
                 "SIGN",
-                "Unallocated game '$assignedGameId' from sign '$key'."
+                "Removed invalid assignment '$assignedGameId' from '$key'."
             )
         }
 
-        plugin.debug(
-            "SIGN",
-            "Searching replacement for '$key'. " +
-                    "Used games=${usedGameIds.joinToString()}, " +
-                    "candidates=${displayableGames.joinToString { it.id }}."
-        )
+        /*
+         * Find next available game.
+         */
 
-        val replacement = displayableGames
-            .firstOrNull {
+        val replacement =
+            displayableGames.firstOrNull {
                 it.id !in usedGameIds
             }
 
@@ -479,17 +422,17 @@ class GameSignService(
             usedGameIds +=
                 replacement.id
 
-            val display = findStateDisplay(
-                gameConfig = gameConfig,
-                state = replacement.state
-            )
+            val display =
+                conditionResolver.findMatchingDisplay(
+                    replacement
+                )
 
             plugin.debug(
                 "SIGN",
-                "Assigned replacement game '${replacement.id}' " +
-                        "state='${replacement.state}', " +
-                        "relativeMaterial='${display?.relativeMaterial}' " +
-                        "to sign '$key'."
+                "Assigned game '${replacement.id}' to '$key'. " +
+                        "Condition='${display?.condition ?: "NONE"}', " +
+                        "priority=${display?.priority}, " +
+                        "relativeMaterial='${display?.relativeMaterial}'."
             )
 
             updateSign(
@@ -501,15 +444,17 @@ class GameSignService(
             return
         }
 
+        /*
+         * No game available.
+         */
+
         assignments.remove(
             key
         )
 
         plugin.debug(
             "SIGN",
-            "No replacement game available for '$key'. " +
-                    "Using searching display with relativeMaterial=" +
-                    "'${gameConfig.searchingForGames.relativeMaterial}'."
+            "No game available for '$key'. Rendering searching display."
         )
 
         updateSearchingSign(
@@ -520,7 +465,7 @@ class GameSignService(
     }
 
     /*
-     * Update sign
+     * Update game sign
      */
 
     fun updateSign(
@@ -534,34 +479,27 @@ class GameSignService(
                 location
             )
 
-        plugin.debug(
-            "SIGN",
-            "updateSign called for '$key': " +
-                    "gameType='$gameType', " +
-                    "game='${game?.id ?: "NONE"}', " +
-                    "state='${game?.state ?: "NONE"}'."
-        )
-
-        val gameConfig = findGameDisplayConfig(
-            gameType
-        ) ?: run {
-
-            plugin.debug(
-                "SIGN",
-                "Unable to update sign '$key': " +
-                        "display configuration for '$gameType' not found."
+        val gameConfig =
+            conditionResolver.findGameDisplayConfig(
+                gameType
             )
+                ?: run {
 
-            return
-        }
+                    plugin.debug(
+                        "SIGN",
+                        "Unable to update '$key': " +
+                                "display config '$gameType' not found."
+                    )
+
+                    return
+                }
+
+        /*
+         * No game supplied.
+         */
 
         if (game == null) {
 
-            plugin.debug(
-                "SIGN",
-                "No game supplied for '$key'; switching to searching display."
-            )
-
             assignments.remove(
                 key
             )
@@ -575,26 +513,17 @@ class GameSignService(
             return
         }
 
-        val stateDisplay = findStateDisplay(
-            gameConfig = gameConfig,
-            state = game.state
-        )
+        /*
+         * Resolve first matching condition using the
+         * central GameConditionResolver.
+         */
 
-        plugin.debug(
-            "SIGN",
-            "State lookup for game '${game.id}', " +
-                    "state='${game.state}': " +
-                    if (stateDisplay == null) {
-                        "NOT FOUND."
-                    } else {
-                        "showState=${stateDisplay.showState}, " +
-                                "allowJoin=${stateDisplay.allowJoin}, " +
-                                "priority=${stateDisplay.priority}, " +
-                                "relativeMaterial='${stateDisplay.relativeMaterial}'."
-                    }
-        )
+        val conditionDisplay =
+            conditionResolver.findMatchingDisplay(
+                game
+            )
 
-        if (stateDisplay == null) {
+        if (conditionDisplay == null) {
 
             assignments.remove(
                 key
@@ -602,9 +531,8 @@ class GameSignService(
 
             plugin.debug(
                 "SIGN",
-                "Game '${game.id}' entered unconfigured " +
-                        "state '${game.state}'. " +
-                        "Sign '$key' unallocated."
+                "Game '${game.id}' matched no display condition. " +
+                        "Switching '$key' to searching."
             )
 
             updateSearchingSign(
@@ -616,7 +544,12 @@ class GameSignService(
             return
         }
 
-        if (!stateDisplay.showState) {
+        /*
+         * A matching condition can explicitly hide
+         * the game from physical signs.
+         */
+
+        if (!conditionDisplay.showState) {
 
             assignments.remove(
                 key
@@ -624,9 +557,9 @@ class GameSignService(
 
             plugin.debug(
                 "SIGN",
-                "Game '${game.id}' entered state " +
-                        "'${game.state}' with showState=false. " +
-                        "Sign '$key' unallocated; searching display will be rendered."
+                "Game '${game.id}' matched " +
+                        "'${conditionDisplay.condition}' with showState=false. " +
+                        "Switching '$key' to searching."
             )
 
             updateSearchingSign(
@@ -640,21 +573,27 @@ class GameSignService(
 
         plugin.debug(
             "SIGN",
-            "Rendering active game '${game.id}' on '$key' " +
-                    "with state='${game.state}' and " +
-                    "relativeMaterial='${stateDisplay.relativeMaterial}'."
+            "Rendering game '${game.id}' on '$key'. " +
+                    "Condition='${conditionDisplay.condition}', " +
+                    "state='${game.state}', " +
+                    "players=${game.players}/${game.maxPlayers}, " +
+                    "allowJoin=${conditionDisplay.allowJoin}, " +
+                    "priority=${conditionDisplay.priority}, " +
+                    "relativeMaterial='${conditionDisplay.relativeMaterial}'."
         )
 
         render(
             location = location,
             gameType = gameType,
             game = game,
-            display = stateDisplay
+            display = resolveDisplay(
+                conditionDisplay
+            )
         )
     }
 
     /*
-     * Searching display
+     * Searching sign
      */
 
     private fun updateSearchingSign(
@@ -672,17 +611,22 @@ class GameSignService(
             key
         )
 
+        val display =
+            resolveDisplay(
+                gameConfig.searchingForGames
+            )
+
         plugin.debug(
             "SIGN",
-            "Rendering searching display on '$key': " +
-                    "relativeMaterial='${gameConfig.searchingForGames.relativeMaterial}'."
+            "Rendering searching display on '$key'. " +
+                    "relativeMaterial='${display.relativeMaterial}'."
         )
 
         render(
             location = location,
             gameType = gameType,
             game = null,
-            display = gameConfig.searchingForGames
+            display = display
         )
     }
 
@@ -694,7 +638,7 @@ class GameSignService(
         location: Location,
         gameType: String,
         game: GameInstance?,
-        display: GameDisplaysConfig.SignDisplay
+        display: ResolvedDisplay
     ) {
 
         val key =
@@ -702,11 +646,22 @@ class GameSignService(
                 location
             )
 
+        /*
+         * Increment render version.
+         */
+
+        val version =
+            renderVersions.merge(
+                key,
+                1L,
+                Long::plus
+            ) ?: 1L
+
         plugin.debug(
             "SIGN",
-            "Scheduling render for '$key': " +
+            "Scheduling render version=$version for '$key'. " +
                     "game='${game?.id ?: "SEARCHING"}', " +
-                    "state='${game?.state ?: "SEARCHING"}', " +
+                    "condition='${display.condition ?: "SEARCHING"}', " +
                     "relativeMaterial='${display.relativeMaterial}'."
         )
 
@@ -715,77 +670,87 @@ class GameSignService(
             location
         ) {
 
-            plugin.debug(
-                "SIGN",
-                "Executing render for '$key' on region thread."
-            )
+            /*
+             * Ignore outdated render task.
+             */
+
+            val latestVersion =
+                renderVersions[key]
+
+            if (latestVersion != version) {
+
+                plugin.debug(
+                    "SIGN",
+                    "Skipping stale render version=$version for '$key'. " +
+                            "Latest=$latestVersion."
+                )
+
+                return@execute
+            }
 
             val block =
                 location.block
 
-            plugin.debug(
-                "SIGN",
-                "Block at '$key' is '${block.type}' with " +
-                        "blockData='${block.blockData.javaClass.simpleName}'."
-            )
+            val sign =
+                block.state as? Sign
+                    ?: run {
 
-            val sign = block.state as? Sign
-                ?: run {
+                        plugin.debug(
+                            "SIGN",
+                            "Configured sign '$key' no longer exists. " +
+                                    "Block='${block.type}'."
+                        )
 
-                    plugin.debug(
-                        "SIGN",
-                        "Configured GameLink sign at '$key' no longer exists. " +
-                                "Block type='${block.type}'."
-                    )
+                        assignments.remove(
+                            key
+                        )
 
-                    assignments.remove(
-                        key
-                    )
+                        return@execute
+                    }
 
-                    return@execute
-                }
-
-            plugin.debug(
-                "SIGN",
-                "Resolved sign block at '$key'. " +
-                        "Waxed=${sign.isWaxed}."
-            )
+            /*
+             * Relative block
+             *
+             * Already running on the correct region thread.
+             * Do not schedule another region task here.
+             */
 
             val relativeLocation =
                 getRelativeBlockLocation(
-                    sign = sign
+                    sign
                 )
 
             if (relativeLocation != null) {
-
-                plugin.debug(
-                    "SIGN",
-                    "Relative block for '$key' resolved to " +
-                            "'${formatLocation(relativeLocation)}'. " +
-                            "Requested material='${display.relativeMaterial}'."
-                )
 
                 applyRelativeMaterial(
                     location = relativeLocation,
                     display = display
                 )
-
-            } else {
-
-                plugin.debug(
-                    "SIGN",
-                    "No relative block location could be determined for '$key'."
-                )
             }
+
+            /*
+             * Sign side
+             */
+
+            val sideType =
+                getSide(
+                    display
+                )
 
             val side =
                 sign.getSide(
-                    Side.FRONT
+                    sideType
                 )
+
+            /*
+             * Lines
+             */
 
             val lines = display
                 .lines
-                .take(4)
+                .take(
+                    4
+                )
                 .map {
                     replacePlaceholders(
                         text = it,
@@ -801,7 +766,7 @@ class GameSignService(
 
             plugin.debug(
                 "SIGN",
-                "Rendering lines for '$key': " +
+                "Rendering '$key' side='$sideType': " +
                         lines.mapIndexed { index, line ->
                             "[$index]='$line'"
                         }.joinToString()
@@ -817,19 +782,25 @@ class GameSignService(
                 )
             }
 
+            /*
+             * Sign options
+             */
+
             applySignOptions(
                 sign = sign,
                 display = display
             )
 
-            val updated = sign.update(
-                true,
-                false
-            )
+            val updated =
+                sign.update(
+                    true,
+                    false
+                )
 
             plugin.debug(
                 "SIGN",
-                "Sign update completed for '$key'. update()=$updated."
+                "Updated sign '$key'. " +
+                        "version=$version, update()=$updated."
             )
         }
     }
@@ -848,325 +819,256 @@ class GameSignService(
         val blockData =
             block.blockData
 
-        plugin.debug(
-            "SIGN",
-            "Resolving relative block for '${formatLocation(block.location)}'. " +
-                    "BlockData='${blockData.javaClass.name}'."
-        )
-
         val face = when (blockData) {
 
             is Directional -> {
 
                 plugin.debug(
                     "SIGN",
-                    "Sign uses Directional data. " +
+                    "Directional sign '${formatLocation(block.location)}': " +
                             "facing='${blockData.facing}', " +
-                            "relativeFace='${blockData.facing.oppositeFace}'."
+                            "relative='${blockData.facing.oppositeFace}'."
                 )
 
-                blockData.facing.oppositeFace
+                blockData
+                    .facing
+                    .oppositeFace
             }
 
             is Rotatable -> {
 
                 plugin.debug(
                     "SIGN",
-                    "Sign uses Rotatable data. " +
+                    "Rotatable sign '${formatLocation(block.location)}': " +
                             "rotation='${blockData.rotation}', " +
-                            "relativeFace='${blockData.rotation.oppositeFace}'."
+                            "relative='${blockData.rotation.oppositeFace}'."
                 )
 
-                blockData.rotation.oppositeFace
+                blockData
+                    .rotation
+                    .oppositeFace
             }
 
             else -> {
 
                 plugin.debug(
                     "SIGN",
-                    "Unable to determine relative block for " +
-                            "'${formatLocation(block.location)}': " +
-                            "unsupported BlockData '${blockData.javaClass.name}'."
+                    "Unable to resolve relative block for " +
+                            "'${formatLocation(block.location)}'. " +
+                            "Unsupported BlockData='${blockData.javaClass.name}'."
                 )
 
                 return null
             }
         }
 
-        val relativeLocation = block.location
+        return block
+            .location
             .clone()
             .add(
                 face.modX.toDouble(),
                 face.modY.toDouble(),
                 face.modZ.toDouble()
             )
-
-        plugin.debug(
-            "SIGN",
-            "Calculated relative block from " +
-                    "'${formatLocation(block.location)}' to " +
-                    "'${formatLocation(relativeLocation)}' using face '$face'."
-        )
-
-        return relativeLocation
     }
 
     /*
-     * Apply relative material
+     * Relative material
      */
 
     private fun applyRelativeMaterial(
         location: Location,
-        display: GameDisplaysConfig.SignDisplay
+        display: ResolvedDisplay
     ) {
 
-        plugin.debug(
-            "SIGN",
-            "Resolving relative material '${display.relativeMaterial}' " +
-                    "for '${formatLocation(location)}'."
-        )
-
-        val material = Material.matchMaterial(
-            display.relativeMaterial
-        ) ?: run {
-
-            plugin.debug(
-                "SIGN",
-                "Invalid relative material '${display.relativeMaterial}' " +
-                        "for '${formatLocation(location)}'."
+        val material =
+            Material.matchMaterial(
+                display.relativeMaterial
             )
+                ?: run {
 
-            return
-        }
+                    plugin.debug(
+                        "SIGN",
+                        "Invalid relative material " +
+                                "'${display.relativeMaterial}' at " +
+                                "'${formatLocation(location)}'."
+                    )
+
+                    return
+                }
 
         if (!material.isBlock) {
 
             plugin.debug(
                 "SIGN",
-                "Relative material '$material' is not a block. " +
-                        "Location='${formatLocation(location)}'."
+                "Relative material '$material' is not a block."
             )
 
             return
         }
 
-        plugin.debug(
-            "SIGN",
-            "Resolved relative material '${display.relativeMaterial}' " +
-                    "to Bukkit material '$material'."
-        )
+        val block =
+            location.block
 
-        Bukkit.getRegionScheduler().execute(
-            plugin,
-            location
-        ) {
+        val previous =
+            block.type
 
-            val block =
-                location.block
-
-            val previous =
-                block.type
+        if (previous == material) {
 
             plugin.debug(
                 "SIGN",
                 "Relative block '${formatLocation(location)}' " +
-                        "currently='$previous', requested='$material'."
+                        "already uses '$material'."
             )
 
-            if (previous == material) {
+            return
+        }
 
-                plugin.debug(
-                    "SIGN",
-                    "Relative block '${formatLocation(location)}' " +
-                            "already uses '$material'; no update required."
-                )
+        block.setType(
+            material,
+            false
+        )
 
-                return@execute
-            }
+        plugin.debug(
+            "SIGN",
+            "Updated relative block '${formatLocation(location)}': " +
+                    "'$previous' -> '${block.type}'."
+        )
+    }
 
-            block.setType(
-                material,
-                false
-            )
+    /*
+     * Resolve condition display
+     */
 
-            plugin.debug(
-                "SIGN",
-                "Updated relative block '${formatLocation(location)}' " +
-                        "from '$previous' to '${block.type}'."
-            )
+    private fun resolveDisplay(
+        display: GameDisplaysConfig.ConditionDisplay
+    ): ResolvedDisplay {
+
+        return ResolvedDisplay(
+            condition = display.condition,
+            allowJoin = display.allowJoin,
+            showState = display.showState,
+            priority = display.priority,
+            relativeMaterial = display.relativeMaterial,
+            signOptions = display.signOptions,
+            lines = display.lines
+        )
+    }
+
+    /*
+     * Resolve searching display
+     */
+
+    private fun resolveDisplay(
+        display: GameDisplaysConfig.SignDisplay
+    ): ResolvedDisplay {
+
+        return ResolvedDisplay(
+            condition = null,
+            allowJoin = display.allowJoin,
+            showState = display.showState,
+            priority = display.priority,
+            relativeMaterial = display.relativeMaterial,
+            signOptions = display.signOptions,
+            lines = display.lines
+        )
+    }
+
+    /*
+     * Sign side
+     */
+
+    private fun getSide(
+        display: ResolvedDisplay
+    ): Side {
+
+        return when (
+            display.signOptions.side.uppercase()
+        ) {
+
+            "BACK" ->
+                Side.BACK
+
+            else ->
+                Side.FRONT
         }
     }
 
     /*
-     * Displayable
+     * Apply sign options
      */
 
-    fun isDisplayable(
-        game: GameInstance
-    ): Boolean {
+    private fun applySignOptions(
+        sign: Sign,
+        display: ResolvedDisplay
+    ) {
+
+        val options =
+            display.signOptions
+
+        val sideType =
+            getSide(
+                display
+            )
+
+        val side =
+            sign.getSide(
+                sideType
+            )
 
         plugin.debug(
             "SIGN",
-            "Checking displayability for game '${game.id}', " +
-                    "type='${game.type}', state='${game.state}'."
+            "Applying sign options at '${formatLocation(sign.location)}': " +
+                    "side='$sideType', " +
+                    "glow=${options.glow}, " +
+                    "color='${options.color}', " +
+                    "waxed=${options.waxed}."
         )
 
-        val gameConfig = findGameDisplayConfig(
-            game.type
-        ) ?: run {
+        /*
+         * Glow
+         */
+
+        side.isGlowingText =
+            options.glow
+
+        /*
+         * Dye color
+         */
+
+        val color =
+            runCatching {
+
+                DyeColor.valueOf(
+                    options.color.uppercase()
+                )
+
+            }.getOrNull()
+
+        if (color != null) {
+
+            side.color =
+                color
+
+        } else {
 
             plugin.debug(
                 "SIGN",
-                "Game '${game.id}' is not displayable: " +
-                        "game type '${game.type}' has no display configuration."
+                "Invalid sign color '${options.color}' at " +
+                        "'${formatLocation(sign.location)}'."
             )
-
-            return false
         }
 
-        val result = isDisplayable(
-            game = game,
-            gameConfig = gameConfig
-        )
+        /*
+         * Wax
+         */
 
-        plugin.debug(
-            "SIGN",
-            "Displayability result for game '${game.id}': $result."
-        )
-
-        return result
-    }
-
-    private fun isDisplayable(
-        game: GameInstance,
-        gameConfig: GameDisplaysConfig.GameTypeDisplay
-    ): Boolean {
-
-        val display = findStateDisplay(
-            gameConfig = gameConfig,
-            state = game.state
-        ) ?: run {
-
-            plugin.debug(
-                "SIGN",
-                "Game '${game.id}' is not displayable: " +
-                        "state '${game.state}' has no SignDisplay."
-            )
-
-            return false
-        }
-
-        plugin.debug(
-            "SIGN",
-            "Game '${game.id}' state '${game.state}' display config: " +
-                    "showState=${display.showState}, " +
-                    "allowJoin=${display.allowJoin}, " +
-                    "priority=${display.priority}, " +
-                    "relativeMaterial='${display.relativeMaterial}'."
-        )
-
-        return display.showState
+        sign.isWaxed =
+            options.waxed
     }
 
     /*
-     * Priority
-     */
-
-    private fun getPriority(
-        game: GameInstance,
-        gameConfig: GameDisplaysConfig.GameTypeDisplay
-    ): Int {
-
-        val display = findStateDisplay(
-            gameConfig = gameConfig,
-            state = game.state
-        )
-
-        val priority =
-            display?.priority
-                ?: Int.MIN_VALUE
-
-        plugin.debug(
-            "SIGN",
-            "Priority for game '${game.id}' state='${game.state}' " +
-                    "resolved to $priority."
-        )
-
-        return priority
-    }
-
-    /*
-     * Game display configuration
-     */
-
-    private fun findGameDisplayConfig(
-        gameType: String
-    ): GameDisplaysConfig.GameTypeDisplay? {
-
-        val entry = plugin
-            .gameDisplaysConfig
-            .games
-            .entries
-            .firstOrNull {
-                it.key.equals(
-                    gameType,
-                    ignoreCase = true
-                )
-            }
-
-        plugin.debug(
-            "SIGN",
-            "Game display config lookup for '$gameType': " +
-                    if (entry == null) {
-                        "NOT FOUND. Available=${plugin.gameDisplaysConfig.games.keys.joinToString()}."
-                    } else {
-                        "FOUND as key='${entry.key}'."
-                    }
-        )
-
-        return entry
-            ?.value
-    }
-
-    /*
-     * State display configuration
-     */
-
-    private fun findStateDisplay(
-        gameConfig: GameDisplaysConfig.GameTypeDisplay,
-        state: String
-    ): GameDisplaysConfig.SignDisplay? {
-
-        val entry = gameConfig
-            .states
-            .entries
-            .firstOrNull {
-                it.key.equals(
-                    state,
-                    ignoreCase = true
-                )
-            }
-
-        plugin.debug(
-            "SIGN",
-            "State display lookup for '$state': " +
-                    if (entry == null) {
-                        "NOT FOUND. Available=${gameConfig.states.keys.joinToString()}."
-                    } else {
-                        "FOUND as '${entry.key}' " +
-                                "[showState=${entry.value.showState}, " +
-                                "allowJoin=${entry.value.allowJoin}, " +
-                                "priority=${entry.value.priority}, " +
-                                "relativeMaterial='${entry.value.relativeMaterial}']."
-                    }
-        )
-
-        return entry
-            ?.value
-    }
-
-    /*
-     * Get assigned game id
+     * Assigned game id
      */
 
     fun getAssignedGameId(
@@ -1183,14 +1085,14 @@ class GameSignService(
 
         plugin.debug(
             "SIGN",
-            "Assignment lookup for '$key': '${gameId ?: "NONE"}'."
+            "Assignment lookup '$key' -> '${gameId ?: "NONE"}'."
         )
 
         return gameId
     }
 
     /*
-     * Get assigned game
+     * Assigned game
      */
 
     fun getAssignedGame(
@@ -1202,22 +1104,9 @@ class GameSignService(
                 location
             )
 
-        val gameId = assignments[
-            key
-        ] ?: run {
-
-            plugin.debug(
-                "SIGN",
-                "No assigned game for sign '$key'."
-            )
-
-            return null
-        }
-
-        plugin.debug(
-            "SIGN",
-            "Fetching assigned game '$gameId' for sign '$key'."
-        )
+        val gameId =
+            assignments[key]
+                ?: return null
 
         val game =
             gameRedisService.get(
@@ -1232,18 +1121,11 @@ class GameSignService(
 
             plugin.debug(
                 "SIGN",
-                "Removed stale assignment '$gameId' from sign '$key'."
+                "Removed stale assignment '$gameId' from '$key'."
             )
 
             return null
         }
-
-        plugin.debug(
-            "SIGN",
-            "Assigned game '$gameId' found for '$key': " +
-                    "state='${game.state}', " +
-                    "players=${game.players}/${game.maxPlayers}."
-        )
 
         return game
     }
@@ -1261,18 +1143,26 @@ class GameSignService(
                 location
             )
 
-        val removed =
+        val gameId =
             assignments.remove(
                 key
             )
 
+        /*
+         * Incrementing is safer than simply deleting:
+         * any already queued render for this sign will
+         * become stale.
+         */
+
+        renderVersions.merge(
+            key,
+            1L,
+            Long::plus
+        )
+
         plugin.debug(
             "SIGN",
-            if (removed != null) {
-                "Cleared game '$removed' from sign '$key'."
-            } else {
-                "No assignment existed for sign '$key' to clear."
-            }
+            "Cleared assignment '$key' -> '${gameId ?: "NONE"}'."
         )
     }
 
@@ -1282,19 +1172,28 @@ class GameSignService(
 
     fun clearAssignments() {
 
-        val amount =
+        val count =
             assignments.size
 
-        plugin.debug(
-            "SIGN",
-            "Clearing all sign assignments. Current count=$amount."
-        )
+        /*
+         * Invalidate existing queued renders before
+         * clearing active assignments.
+         */
+
+        renderVersions.keys.forEach { key ->
+
+            renderVersions.merge(
+                key,
+                1L,
+                Long::plus
+            )
+        }
 
         assignments.clear()
 
         plugin.debug(
             "SIGN",
-            "Cleared $amount sign assignment(s)."
+            "Cleared $count sign assignment(s)."
         )
     }
 
@@ -1304,44 +1203,15 @@ class GameSignService(
 
     private fun cleanupRemovedSigns() {
 
-        plugin.debug(
-            "SIGN",
-            "Checking ${assignments.size} assignment(s) for removed sign configs."
-        )
-
         val configuredKeys = plugin
             .gameSignsConfig
             .signs
             .mapNotNull {
-
-                val location =
-                    it.location.toLocation()
-
-                if (location == null) {
-
-                    plugin.debug(
-                        "SIGN",
-                        "Unable to resolve configured sign while cleaning: " +
-                                "'${it.location.world}:" +
-                                "${it.location.x}," +
-                                "${it.location.y}," +
-                                "${it.location.z}'."
-                    )
-                }
-
-                location
-                    ?.let { resolved ->
-                        signKey(
-                            resolved
-                        )
-                    }
+                it.location
+                    .toLocation()
+                    ?.let(::signKey)
             }
             .toSet()
-
-        plugin.debug(
-            "SIGN",
-            "Configured sign keys: ${configuredKeys.joinToString()}."
-        )
 
         val staleKeys = assignments
             .keys
@@ -1349,30 +1219,29 @@ class GameSignService(
                 it !in configuredKeys
             }
 
-        staleKeys.forEach {
+        staleKeys.forEach { key ->
 
-            val removed =
+            val gameId =
                 assignments.remove(
-                    it
+                    key
                 )
 
-            plugin.debug(
-                "SIGN",
-                "Removed stale sign assignment '$it' -> '$removed'."
+            renderVersions.merge(
+                key,
+                1L,
+                Long::plus
             )
-        }
-
-        if (staleKeys.isEmpty()) {
 
             plugin.debug(
                 "SIGN",
-                "No stale sign assignments found."
+                "Removed stale sign assignment " +
+                        "'$key' -> '${gameId ?: "NONE"}'."
             )
         }
     }
 
     /*
-     * Placeholders
+     * Sign placeholders
      */
 
     private fun replacePlaceholders(
@@ -1381,7 +1250,7 @@ class GameSignService(
         game: GameInstance?
     ): String {
 
-        val replaced = text
+        return text
             .replace(
                 "{game}",
                 game?.type
@@ -1419,100 +1288,6 @@ class GameSignService(
                 game?.map
                     ?: ""
             )
-
-        plugin.debug(
-            "SIGN",
-            "Replaced sign placeholders: '$text' -> '$replaced' " +
-                    "for game='${game?.id ?: "SEARCHING"}'."
-        )
-
-        return replaced
-    }
-
-    /*
-     * Apply sign options
-     *
-     * Applies all configured physical sign options
-     * to the selected sign side.
-     */
-    private fun applySignOptions(
-        sign: Sign,
-        display: GameDisplaysConfig.SignDisplay
-    ) {
-
-        val options =
-            display.signOptions
-
-        /*
-         * Resolve side.
-         */
-
-        val sideType = when (
-            options.side.uppercase()
-        ) {
-
-            "BACK" -> Side.BACK
-
-            else -> Side.FRONT
-        }
-
-        val side =
-            sign.getSide(
-                sideType
-            )
-
-        plugin.debug(
-            "SIGN",
-            "Applying sign options to " +
-                    "'${formatLocation(sign.location)}': " +
-                    "side='$sideType', " +
-                    "glow=${options.glow}, " +
-                    "color='${options.color}', " +
-                    "waxed=${options.waxed}."
-        )
-
-        /*
-         * Glow
-         */
-
-        side.isGlowingText = options.glow
-
-        /*
-         * Dye color
-         */
-
-        val color = runCatching {
-            DyeColor.valueOf(
-                options.color.uppercase()
-            )
-        }.getOrNull()
-
-        if (color != null) {
-
-            side.color =
-                color
-
-            plugin.debug(
-                "SIGN",
-                "Applied sign color '$color' to " +
-                        "'${formatLocation(sign.location)}'."
-            )
-
-        } else {
-
-            plugin.debug(
-                "SIGN",
-                "Invalid sign color '${options.color}' at " +
-                        "'${formatLocation(sign.location)}'."
-            )
-        }
-
-        /*
-         * Waxed
-         */
-
-        sign.isWaxed =
-            options.waxed
     }
 
     /*
